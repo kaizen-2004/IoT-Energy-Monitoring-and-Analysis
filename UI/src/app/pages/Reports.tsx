@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, Calendar, Download, FileText, Image as ImageIcon, RefreshCw, Table } from "lucide-react";
 import { toast } from "sonner";
 import jsPDF from "jspdf";
-import html2canvas from "html2canvas";
 import { API_BASE, fetchDashboardData } from "../utils/mockData";
 import type { Alert, DailyData, NodeSummary } from "../utils/mockData";
 import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
@@ -11,6 +10,98 @@ function isoDate(daysFromToday: number) {
   const date = new Date();
   date.setDate(date.getDate() + daysFromToday);
   return date.toISOString().slice(0, 10);
+}
+
+function drawSeriesOnPdf(
+  pdf: jsPDF,
+  values: number[],
+  areaX: number,
+  areaY: number,
+  areaWidth: number,
+  areaHeight: number,
+  maxValue: number,
+  color: [number, number, number]
+) {
+  if (values.length < 2) {
+    return;
+  }
+
+  const stepX = areaWidth / (values.length - 1);
+  pdf.setDrawColor(color[0], color[1], color[2]);
+  pdf.setLineWidth(0.8);
+
+  for (let index = 1; index < values.length; index += 1) {
+    const prevX = areaX + stepX * (index - 1);
+    const prevY = areaY + areaHeight - (values[index - 1] / maxValue) * areaHeight;
+    const currX = areaX + stepX * index;
+    const currY = areaY + areaHeight - (values[index] / maxValue) * areaHeight;
+    pdf.line(prevX, prevY, currX, currY);
+  }
+}
+
+function drawTrendChartPdf(
+  pdf: jsPDF,
+  chartData: DailyData[],
+  nodeSummaries: NodeSummary[],
+  pageWidth: number,
+  startY: number
+) {
+  const chartX = 20;
+  const chartWidth = pageWidth - 40;
+  const chartHeight = 90;
+  const plotPadding = 12;
+  const areaX = chartX + plotPadding;
+  const areaY = startY + plotPadding;
+  const areaWidth = chartWidth - plotPadding * 2;
+  const areaHeight = chartHeight - plotPadding * 2;
+
+  const node1 = chartData.map((row) => row.node1);
+  const node2 = chartData.map((row) => row.node2);
+  const node3 = chartData.map((row) => row.node3);
+  const maxValue = Math.max(1, ...node1, ...node2, ...node3);
+
+  pdf.setDrawColor(220, 220, 220);
+  pdf.setLineWidth(0.4);
+  pdf.rect(chartX, startY, chartWidth, chartHeight);
+
+  for (let i = 1; i <= 4; i += 1) {
+    const y = areaY + (areaHeight * i) / 4;
+    pdf.line(areaX, y, areaX + areaWidth, y);
+  }
+
+  drawSeriesOnPdf(pdf, node1, areaX, areaY, areaWidth, areaHeight, maxValue, [147, 51, 234]);
+  drawSeriesOnPdf(pdf, node2, areaX, areaY, areaWidth, areaHeight, maxValue, [249, 115, 22]);
+  drawSeriesOnPdf(pdf, node3, areaX, areaY, areaWidth, areaHeight, maxValue, [6, 182, 212]);
+
+  const labels = chartData.map((row) => row.date);
+  if (labels.length > 0) {
+    pdf.setTextColor(90, 90, 90);
+    pdf.setFontSize(8);
+    const first = labels[0];
+    const mid = labels[Math.floor(labels.length / 2)];
+    const last = labels[labels.length - 1];
+    pdf.text(first, areaX, startY + chartHeight + 5);
+    pdf.text(mid, areaX + areaWidth / 2 - 8, startY + chartHeight + 5);
+    pdf.text(last, areaX + areaWidth - 12, startY + chartHeight + 5);
+  }
+
+  const legendY = startY + chartHeight + 12;
+  const legendItems: Array<{ label: string; color: [number, number, number] }> = [
+    { label: `Node 1 (${nodeSummaries[0]?.label || "Node 1"})`, color: [147, 51, 234] },
+    { label: `Node 2 (${nodeSummaries[1]?.label || "Node 2"})`, color: [249, 115, 22] },
+    { label: `Node 3 (${nodeSummaries[2]?.label || "Node 3"})`, color: [6, 182, 212] }
+  ];
+
+  let legendX = chartX;
+  legendItems.forEach((item) => {
+    pdf.setDrawColor(item.color[0], item.color[1], item.color[2]);
+    pdf.setLineWidth(1.2);
+    pdf.line(legendX, legendY, legendX + 8, legendY);
+    pdf.setTextColor(70, 70, 70);
+    pdf.setFontSize(8);
+    pdf.text(item.label, legendX + 10, legendY + 1.5);
+    legendX += 58;
+  });
 }
 
 export default function Reports() {
@@ -159,19 +250,7 @@ export default function Reports() {
         pdf.setFontSize(16);
         pdf.text("7-Day Energy Consumption Trend", 20, yPos);
         yPos += 10;
-
-        const chartElement = document.getElementById("report-chart");
-        if (chartElement) {
-          const canvas = await html2canvas(chartElement, {
-            backgroundColor: "#ffffff",
-            scale: 2
-          });
-          const imgData = canvas.toDataURL("image/png");
-          const imgWidth = pageWidth - 40;
-          const imgHeight = (canvas.height * imgWidth) / canvas.width;
-
-          pdf.addImage(imgData, "PNG", 20, yPos, imgWidth, imgHeight);
-        }
+        drawTrendChartPdf(pdf, chartData, nodeSummaries, pageWidth, yPos);
       }
 
       if (includeAlerts && alerts.length > 0) {
