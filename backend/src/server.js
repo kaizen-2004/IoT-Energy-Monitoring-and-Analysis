@@ -15,12 +15,19 @@ const store = new ReadingStore();
 app.use(cors());
 app.use(express.json({ limit: "1mb" }));
 
-app.get("/health", async (_req, res, next) => {
+app.get("/health", (_req, res) => {
+  res.json({
+    status: "ok",
+    uptimeSeconds: process.uptime(),
+    timestamp: new Date().toISOString()
+  });
+});
+
+app.get("/health/db", async (_req, res, next) => {
   try {
     const count = await store.getCount();
     res.json({
       status: "ok",
-      uptimeSeconds: process.uptime(),
       readingCount: count,
       timestamp: new Date().toISOString()
     });
