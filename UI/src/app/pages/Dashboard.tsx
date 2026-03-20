@@ -10,7 +10,7 @@ import {
   Zap
 } from "lucide-react";
 import {
-  Area,
+  Bar,
   ComposedChart,
   CartesianGrid,
   Legend,
@@ -20,7 +20,12 @@ import {
   XAxis,
   YAxis
 } from "recharts";
-import { API_BASE, fetchDashboardData, getPHTTime } from "../utils/mockData";
+import {
+  API_BASE,
+  fetchAppSettings,
+  fetchDashboardData,
+  getPHTTime
+} from "../utils/mockData";
 import type { Alert, DailyData, NodeSummary } from "../utils/mockData";
 
 export default function Dashboard() {
@@ -35,11 +40,13 @@ export default function Dashboard() {
 
   const loadData = useCallback(async () => {
     try {
-      const savedRate = window.localStorage.getItem("electricityRate");
-      const currentRate = savedRate ? Number(savedRate) : 11.5;
-      setRate(Number.isFinite(currentRate) && currentRate >= 0 ? currentRate : 11.5);
+      const settings = await fetchAppSettings();
+      setRate(settings.electricityRate);
 
-      const dashboardData = await fetchDashboardData(currentRate);
+      const dashboardData = await fetchDashboardData({
+        settings,
+        rate: settings.electricityRate
+      });
       setChartData(dashboardData.chartData);
       setNodeSummaries(dashboardData.nodeSummaries);
       setAlerts(dashboardData.alerts);
@@ -261,7 +268,7 @@ export default function Dashboard() {
 
       <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 p-6">
         <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-4">7-Day Energy Profile (kWh)</h2>
-        <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">Stacked node consumption with total daily trend</p>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">Grouped daily node usage with total daily trend line</p>
 
         <div className="h-80">
           <ResponsiveContainer width="100%" height="100%">
@@ -274,32 +281,23 @@ export default function Dashboard() {
                 formatter={(value: number) => `${Number(value).toFixed(3)} kWh`}
               />
               <Legend />
-              <Area
-                type="monotone"
+              <Bar
                 dataKey="node1"
-                stackId="nodes"
                 name={`Node 1 (${nodeSummaries[0]?.label || "Node 1"})`}
-                stroke="#7c3aed"
                 fill="#7c3aed"
-                fillOpacity={0.32}
+                radius={[3, 3, 0, 0]}
               />
-              <Area
-                type="monotone"
+              <Bar
                 dataKey="node2"
-                stackId="nodes"
                 name={`Node 2 (${nodeSummaries[1]?.label || "Node 2"})`}
-                stroke="#ea580c"
                 fill="#ea580c"
-                fillOpacity={0.32}
+                radius={[3, 3, 0, 0]}
               />
-              <Area
-                type="monotone"
+              <Bar
                 dataKey="node3"
-                stackId="nodes"
                 name={`Node 3 (${nodeSummaries[2]?.label || "Node 3"})`}
-                stroke="#0891b2"
                 fill="#0891b2"
-                fillOpacity={0.32}
+                radius={[3, 3, 0, 0]}
               />
               <Line
                 key="total-line"

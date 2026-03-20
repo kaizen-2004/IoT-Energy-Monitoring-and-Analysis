@@ -5,7 +5,11 @@ const dotenv = require("dotenv");
 dotenv.config();
 
 const { ReadingStore } = require("./store");
-const { validateReadingPayload, normalizeReading } = require("./validation");
+const {
+  validateReadingPayload,
+  validateSettingsPayload,
+  normalizeReading
+} = require("./validation");
 
 const PORT = Number(process.env.PORT || 8080);
 
@@ -30,6 +34,35 @@ app.get("/health/db", async (_req, res, next) => {
       status: "ok",
       readingCount: count,
       timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/settings", async (_req, res, next) => {
+  try {
+    const data = await store.getSettings();
+    res.json({ data });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.put("/api/settings", async (req, res, next) => {
+  const { valid, errors } = validateSettingsPayload(req.body);
+  if (!valid) {
+    return res.status(400).json({
+      message: "Invalid payload",
+      errors
+    });
+  }
+
+  try {
+    const data = await store.saveSettings(req.body);
+    return res.json({
+      message: "Settings saved",
+      data
     });
   } catch (error) {
     next(error);

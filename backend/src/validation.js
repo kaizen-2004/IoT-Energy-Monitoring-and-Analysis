@@ -49,6 +49,76 @@ function validateReadingPayload(body) {
   };
 }
 
+function validateSettingsPayload(body) {
+  const errors = [];
+
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return {
+      valid: false,
+      errors: ["payload must be a JSON object"]
+    };
+  }
+
+  const hasAnyKnownField =
+    body.electricityRate !== undefined ||
+    body.effectiveMonth !== undefined ||
+    body.nodeLabels !== undefined ||
+    body.nodeThresholds !== undefined ||
+    body.timezone !== undefined;
+
+  if (!hasAnyKnownField) {
+    errors.push(
+      "provide at least one of: electricityRate, effectiveMonth, nodeLabels, nodeThresholds, timezone"
+    );
+  }
+
+  if (body.electricityRate !== undefined) {
+    if (!isNumber(body.electricityRate) || body.electricityRate < 0) {
+      errors.push("electricityRate must be a finite number >= 0");
+    }
+  }
+
+  if (body.effectiveMonth !== undefined) {
+    const monthOk =
+      typeof body.effectiveMonth === "string" &&
+      /^\d{4}-(0[1-9]|1[0-2])$/.test(body.effectiveMonth);
+    if (!monthOk) {
+      errors.push("effectiveMonth must be in YYYY-MM format");
+    }
+  }
+
+  if (body.nodeLabels !== undefined) {
+    const validLabels =
+      Array.isArray(body.nodeLabels) &&
+      body.nodeLabels.length === 3 &&
+      body.nodeLabels.every((label) => typeof label === "string" && label.trim().length > 0);
+    if (!validLabels) {
+      errors.push("nodeLabels must be an array of 3 non-empty strings");
+    }
+  }
+
+  if (body.nodeThresholds !== undefined) {
+    const validThresholds =
+      Array.isArray(body.nodeThresholds) &&
+      body.nodeThresholds.length === 3 &&
+      body.nodeThresholds.every((value) => isNumber(value) && value >= 0);
+    if (!validThresholds) {
+      errors.push("nodeThresholds must be an array of 3 finite numbers >= 0");
+    }
+  }
+
+  if (body.timezone !== undefined) {
+    if (!isString(body.timezone)) {
+      errors.push("timezone must be a non-empty string");
+    }
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors
+  };
+}
+
 function normalizeReading(body) {
   const nowIso = new Date().toISOString();
   const ts =
@@ -76,6 +146,6 @@ function normalizeReading(body) {
 
 module.exports = {
   validateReadingPayload,
+  validateSettingsPayload,
   normalizeReading
 };
-

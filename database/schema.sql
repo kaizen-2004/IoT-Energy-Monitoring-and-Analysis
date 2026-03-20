@@ -32,6 +32,21 @@ CREATE INDEX IF NOT EXISTS idx_readings_node_ts
 CREATE INDEX IF NOT EXISTS idx_readings_alerts_ts
   ON readings (abnormal, reading_ts DESC);
 
+-- Shared dashboard/app settings (single row)
+CREATE TABLE IF NOT EXISTS app_settings (
+  id SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  electricity_rate DOUBLE PRECISION NOT NULL DEFAULT 11.5,
+  effective_month DATE NOT NULL DEFAULT date_trunc('month', now())::date,
+  node_labels JSONB NOT NULL DEFAULT '["Node 1","Node 2","Node 3"]'::jsonb,
+  node_thresholds JSONB NOT NULL DEFAULT '[500,800,600]'::jsonb,
+  timezone TEXT NOT NULL DEFAULT 'Asia/Manila',
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+INSERT INTO app_settings (id)
+VALUES (1)
+ON CONFLICT (id) DO NOTHING;
+
 -- Optional materialized view for fast summary queries
 -- CREATE MATERIALIZED VIEW appliance_hourly_summary AS
 -- SELECT
@@ -43,4 +58,3 @@ CREATE INDEX IF NOT EXISTS idx_readings_alerts_ts
 --   COUNT(*) AS sample_count
 -- FROM readings
 -- GROUP BY appliance_id, date_trunc('hour', reading_ts);
-

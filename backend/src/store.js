@@ -1,5 +1,66 @@
 const { query } = require("./db");
 
+const DEFAULT_NODE_LABELS = ["Node 1", "Node 2", "Node 3"];
+const DEFAULT_NODE_THRESHOLDS = [500, 800, 600];
+const DEFAULT_SETTINGS = {
+  electricityRate: 11.5,
+  effectiveMonth: new Date().toISOString().slice(0, 7),
+  nodeLabels: DEFAULT_NODE_LABELS,
+  nodeThresholds: DEFAULT_NODE_THRESHOLDS,
+  timezone: "Asia/Manila"
+};
+
+function isValidMonth(value) {
+  return typeof value === "string" && /^\d{4}-(0[1-9]|1[0-2])$/.test(value);
+}
+
+function normalizeNodeLabels(value) {
+  if (!Array.isArray(value)) {
+    return DEFAULT_NODE_LABELS;
+  }
+
+  return [0, 1, 2].map((index) => {
+    const label = value[index];
+    if (typeof label !== "string") {
+      return DEFAULT_NODE_LABELS[index];
+    }
+    const cleaned = label.trim();
+    return cleaned || DEFAULT_NODE_LABELS[index];
+  });
+}
+
+function normalizeNodeThresholds(value) {
+  if (!Array.isArray(value)) {
+    return DEFAULT_NODE_THRESHOLDS;
+  }
+
+  return [0, 1, 2].map((index) => {
+    const threshold = Number(value[index]);
+    return Number.isFinite(threshold) && threshold >= 0
+      ? threshold
+      : DEFAULT_NODE_THRESHOLDS[index];
+  });
+}
+
+function mapSettingsRow(row) {
+  return {
+    electricityRate:
+      Number.isFinite(Number(row.electricity_rate))
+        ? Number(row.electricity_rate)
+        : DEFAULT_SETTINGS.electricityRate,
+    effectiveMonth: isValidMonth(row.effective_month)
+      ? row.effective_month
+      : DEFAULT_SETTINGS.effectiveMonth,
+    nodeLabels: normalizeNodeLabels(row.node_labels),
+    nodeThresholds: normalizeNodeThresholds(row.node_thresholds),
+    timezone:
+      typeof row.timezone === "string" && row.timezone.trim().length > 0
+        ? row.timezone.trim()
+        : DEFAULT_SETTINGS.timezone,
+    updatedAt: row.updated_at || null
+  };
+}
+
 function mapReadingRow(row) {
   return {
     nodeId: row.node_id,
@@ -18,6 +79,36 @@ function mapReadingRow(row) {
 }
 
 class ReadingStore {
+  constructor() {
+    this.settingsInitPromise = null;
+  }
+
+  async ensureSettingsTable() {
+    if (!this.settingsInitPromise) {
+      this.settingsInitPromise = (async () => {
+        await query(`
+          CREATE TABLE IF NOT EXISTS app_settings (
+            id SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+            electricity_rate DOUBLE PRECISION NOT NULL DEFAULT 11.5,
+            effective_month DATE NOT NULL DEFAULT date_trunc('month', now())::date,
+            node_labels JSONB NOT NULL DEFAULT '["Node 1","Node 2","Node 3"]'::jsonb,
+            node_thresholds JSONB NOT NULL DEFAULT '[500,800,600]'::jsonb,
+            timezone TEXT NOT NULL DEFAULT 'Asia/Manila',
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+          )
+        `);
+
+        await query(`
+          INSERT INTO app_settings (id)
+          VALUES (1)
+          ON CONFLICT (id) DO NOTHING
+        `);
+      })();
+    }
+
+    await this.settingsInitPromise;
+  }
+
   async add(reading) {
     const sql = `
       INSERT INTO readings (
@@ -183,6 +274,88 @@ class ReadingStore {
     const sql = `SELECT COUNT(*)::int AS count FROM readings`;
     const result = await query(sql);
     return Number(result.rows[0]?.count || 0);
+  }
+
+  async getSettings() {
+    await this.ensureSettingsTable();
+
+    const sql = `
+      SELECT
+        electricity_rate,
+        to_char(effective_month, 'YYYY-MM') AS effective_month,
+        node_labels,
+        node_thresholds,
+        timezone,
+        updated_at
+      FROM app_settings
+      WHERE id = 1
+      LIMIT 1
+    `;
+
+    const result = await query(sql);
+    const row = result.rows[0];
+    if (!row) {
+      return DEFAULT_SETTINGS;
+    }
+
+    return mapSettingsRow(row);
+  }
+
+  async saveSettings(partialSettings) {
+    await this.ensureSettingsTable();
+    const current = await this.getSettings();
+
+    const nextSettings = {
+      electricityRate:
+        Number.isFinite(partialSettings.electricityRate) &&
+        partialSettings.electricityRate >= 0
+          ? partialSettings.electricityRate
+          : current.electricityRate,
+      effectiveMonth: isValidMonth(partialSettings.effectiveMonth)
+        ? partialSettings.effectiveMonth
+        : current.effectiveMonth,
+      nodeLabels: Array.isArray(partialSettings.nodeLabels)
+        ? normalizeNodeLabels(partialSettings.nodeLabels)
+        : current.nodeLabels,
+      nodeThresholds: Array.isArray(partialSettings.nodeThresholds)
+        ? normalizeNodeThresholds(partialSettings.nodeThresholds)
+        : current.nodeThresholds,
+      timezone:
+        typeof partialSettings.timezone === "string" &&
+        partialSettings.timezone.trim().length > 0
+          ? partialSettings.timezone.trim()
+          : current.timezone
+    };
+
+    const sql = `
+      UPDATE app_settings
+      SET
+        electricity_rate = $1,
+        effective_month = $2::date,
+        node_labels = $3::jsonb,
+        node_thresholds = $4::jsonb,
+        timezone = $5,
+        updated_at = NOW()
+      WHERE id = 1
+      RETURNING
+        electricity_rate,
+        to_char(effective_month, 'YYYY-MM') AS effective_month,
+        node_labels,
+        node_thresholds,
+        timezone,
+        updated_at
+    `;
+
+    const params = [
+      nextSettings.electricityRate,
+      `${nextSettings.effectiveMonth}-01`,
+      JSON.stringify(nextSettings.nodeLabels),
+      JSON.stringify(nextSettings.nodeThresholds),
+      nextSettings.timezone
+    ];
+
+    const result = await query(sql, params);
+    return mapSettingsRow(result.rows[0]);
   }
 }
 

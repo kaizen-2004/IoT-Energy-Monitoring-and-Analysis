@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, Calendar, Download, FileText, Image as ImageIcon, RefreshCw, Table } from "lucide-react";
 import { toast } from "sonner";
 import jsPDF from "jspdf";
-import { API_BASE, fetchDashboardData } from "../utils/mockData";
+import { API_BASE, fetchAppSettings, fetchDashboardData } from "../utils/mockData";
 import type { Alert, DailyData, NodeSummary } from "../utils/mockData";
 import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
@@ -151,11 +151,17 @@ export default function Reports() {
   const loadData = useCallback(async () => {
     try {
       setIsLoading(true);
-      const savedRate = Number(window.localStorage.getItem("electricityRate") || "11.5");
-      const currentRate = Number.isFinite(savedRate) && savedRate >= 0 ? savedRate : 11.5;
+      const settings = await fetchAppSettings();
+      const currentRate =
+        Number.isFinite(settings.electricityRate) && settings.electricityRate >= 0
+          ? settings.electricityRate
+          : 11.5;
       setRate(currentRate);
 
-      const dashboardData = await fetchDashboardData(currentRate);
+      const dashboardData = await fetchDashboardData({
+        settings,
+        rate: currentRate
+      });
       setChartData(dashboardData.chartData);
       setNodeSummaries(dashboardData.nodeSummaries);
       setAlerts(dashboardData.alerts);

@@ -49,10 +49,26 @@ export interface DashboardData {
   readings: ApiReading[];
 }
 
+export interface AppSettings {
+  electricityRate: number;
+  effectiveMonth: string;
+  nodeLabels: string[];
+  nodeThresholds: number[];
+  timezone: string;
+  updatedAt: string | null;
+}
+
+interface FetchDashboardOptions {
+  settings?: AppSettings;
+  rate?: number;
+}
+
 const PHT_TIMEZONE = "Asia/Manila";
 const FALLBACK_APPLIANCE_IDS = ["appliance-01", "appliance-02", "appliance-03"];
 const DEFAULT_NODE_LABELS = ["Node 1", "Node 2", "Node 3"];
 const DEFAULT_NODE_THRESHOLDS = [500, 800, 600];
+const DEFAULT_ELECTRICITY_RATE = 11.5;
+const DEFAULT_TIMEZONE = "Asia/Manila";
 
 function resolveApiBase() {
   const envValue =
@@ -84,6 +100,27 @@ function resolveApiBase() {
 
 export const API_BASE = resolveApiBase();
 
+function defaultMonth() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function normalizeMonth(value: unknown) {
+  if (typeof value !== "string") {
+    return defaultMonth();
+  }
+
+  if (/^\d{4}-(0[1-9]|1[0-2])$/.test(value)) {
+    return value;
+  }
+
+  if (/^\d{4}-(0[1-9]|1[0-2])-\d{2}$/.test(value)) {
+    return value.slice(0, 7);
+  }
+
+  return defaultMonth();
+}
+
 function parseJsonArray<T>(value: string | null, fallback: T): T {
   if (!value) {
     return fallback;
@@ -97,23 +134,93 @@ function parseJsonArray<T>(value: string | null, fallback: T): T {
   }
 }
 
-function getNodeLabels() {
-  if (typeof window === "undefined") {
-    return DEFAULT_NODE_LABELS;
+function normalizeNodeLabels(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [...DEFAULT_NODE_LABELS];
   }
-  const parsed = parseJsonArray<string[]>(window.localStorage.getItem("nodeLabels"), DEFAULT_NODE_LABELS);
-  return [0, 1, 2].map((index) => (parsed[index] || DEFAULT_NODE_LABELS[index]).trim() || DEFAULT_NODE_LABELS[index]);
+
+  return [0, 1, 2].map((index) => {
+    const label = value[index];
+    if (typeof label !== "string") {
+      return DEFAULT_NODE_LABELS[index];
+    }
+    const cleaned = label.trim();
+    return cleaned || DEFAULT_NODE_LABELS[index];
+  });
 }
 
-function getNodeThresholds() {
-  if (typeof window === "undefined") {
-    return DEFAULT_NODE_THRESHOLDS;
+function normalizeNodeThresholds(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [...DEFAULT_NODE_THRESHOLDS];
   }
-  const parsed = parseJsonArray<number[]>(window.localStorage.getItem("nodeThresholds"), DEFAULT_NODE_THRESHOLDS);
+
   return [0, 1, 2].map((index) => {
-    const value = Number(parsed[index]);
-    return Number.isFinite(value) && value >= 0 ? value : DEFAULT_NODE_THRESHOLDS[index];
+    const threshold = Number(value[index]);
+    return Number.isFinite(threshold) && threshold >= 0 ? threshold : DEFAULT_NODE_THRESHOLDS[index];
   });
+}
+
+function normalizeSettings(value: unknown): AppSettings {
+  const source = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  const rateCandidate = Number(source.electricityRate ?? source.electricity_rate);
+  const timezoneCandidate = source.timezone;
+  const updatedAtCandidate = source.updatedAt ?? source.updated_at;
+
+  return {
+    electricityRate:
+      Number.isFinite(rateCandidate) && rateCandidate >= 0
+        ? rateCandidate
+        : DEFAULT_ELECTRICITY_RATE,
+    effectiveMonth: normalizeMonth(source.effectiveMonth ?? source.effective_month),
+    nodeLabels: normalizeNodeLabels(source.nodeLabels ?? source.node_labels),
+    nodeThresholds: normalizeNodeThresholds(source.nodeThresholds ?? source.node_thresholds),
+    timezone:
+      typeof timezoneCandidate === "string" && timezoneCandidate.trim().length > 0
+        ? timezoneCandidate.trim()
+        : DEFAULT_TIMEZONE,
+    updatedAt:
+      typeof updatedAtCandidate === "string" && updatedAtCandidate.length > 0
+        ? updatedAtCandidate
+        : null
+  };
+}
+
+function readLocalSettings(): AppSettings {
+  if (typeof window === "undefined") {
+    return normalizeSettings({});
+  }
+
+  const rawRate = window.localStorage.getItem("electricityRate");
+  const rawMonth = window.localStorage.getItem("effectiveMonth");
+  const rawTimezone = window.localStorage.getItem("timezone");
+  const rawLabels = parseJsonArray<string[]>(
+    window.localStorage.getItem("nodeLabels"),
+    DEFAULT_NODE_LABELS
+  );
+  const rawThresholds = parseJsonArray<number[]>(
+    window.localStorage.getItem("nodeThresholds"),
+    DEFAULT_NODE_THRESHOLDS
+  );
+
+  return normalizeSettings({
+    electricityRate: rawRate ? Number(rawRate) : DEFAULT_ELECTRICITY_RATE,
+    effectiveMonth: rawMonth || defaultMonth(),
+    nodeLabels: rawLabels,
+    nodeThresholds: rawThresholds,
+    timezone: rawTimezone || DEFAULT_TIMEZONE
+  });
+}
+
+function persistLocalSettings(settings: AppSettings) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.localStorage.setItem("electricityRate", String(settings.electricityRate));
+  window.localStorage.setItem("effectiveMonth", settings.effectiveMonth);
+  window.localStorage.setItem("nodeLabels", JSON.stringify(settings.nodeLabels));
+  window.localStorage.setItem("nodeThresholds", JSON.stringify(settings.nodeThresholds));
+  window.localStorage.setItem("timezone", settings.timezone);
 }
 
 function getPHTDayKey(dateInput: Date | string) {
@@ -160,12 +267,70 @@ function formatPHTTimestamp(timestamp: string) {
   });
 }
 
-async function fetchJson(path: string) {
-  const response = await fetch(`${API_BASE}${path}`);
+async function fetchJson(path: string, init?: RequestInit) {
+  const response = await fetch(`${API_BASE}${path}`, init);
   if (!response.ok) {
     throw new Error(`HTTP ${response.status} for ${path}`);
   }
   return response.json();
+}
+
+export async function fetchAppSettings(): Promise<AppSettings> {
+  try {
+    const response = await fetchJson("/api/settings");
+    const settings = normalizeSettings(response?.data ?? response);
+    persistLocalSettings(settings);
+    return settings;
+  } catch (_error) {
+    return readLocalSettings();
+  }
+}
+
+export async function saveAppSettings(
+  partialSettings: Partial<AppSettings>
+): Promise<AppSettings> {
+  const payload: Record<string, unknown> = {};
+
+  if (partialSettings.electricityRate !== undefined) {
+    payload.electricityRate = Number(partialSettings.electricityRate);
+  }
+  if (partialSettings.effectiveMonth !== undefined) {
+    payload.effectiveMonth = partialSettings.effectiveMonth;
+  }
+  if (partialSettings.nodeLabels !== undefined) {
+    payload.nodeLabels = partialSettings.nodeLabels;
+  }
+  if (partialSettings.nodeThresholds !== undefined) {
+    payload.nodeThresholds = partialSettings.nodeThresholds;
+  }
+  if (partialSettings.timezone !== undefined) {
+    payload.timezone = partialSettings.timezone;
+  }
+
+  if (Object.keys(payload).length === 0) {
+    return fetchAppSettings();
+  }
+
+  try {
+    const response = await fetchJson("/api/settings", {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(payload)
+    });
+
+    const settings = normalizeSettings(response?.data ?? response);
+    persistLocalSettings(settings);
+    return settings;
+  } catch (error) {
+    const fallback = normalizeSettings({
+      ...readLocalSettings(),
+      ...partialSettings
+    });
+    persistLocalSettings(fallback);
+    throw error;
+  }
 }
 
 function pickThreeAppliances(applianceIds: string[]) {
@@ -220,9 +385,9 @@ function buildNodeSummaries(
   selectedAppliances: string[],
   dailyByAppliance: Map<string, Record<string, number>>,
   latestByAppliance: Map<string, ApiReading>,
-  rate: number
+  rate: number,
+  labels: string[]
 ): NodeSummary[] {
-  const labels = getNodeLabels();
   const todayKey = getPHTDayKey(new Date());
   const yesterdayKey = getPHTDayKey(new Date(Date.now() - 24 * 60 * 60 * 1000));
 
@@ -260,9 +425,12 @@ function buildChartData(
   }));
 }
 
-function mapAlerts(alertRows: ApiReading[], selectedAppliances: string[]) {
-  const labels = getNodeLabels();
-  const thresholds = getNodeThresholds();
+function mapAlerts(
+  alertRows: ApiReading[],
+  selectedAppliances: string[],
+  labels: string[],
+  thresholds: number[]
+) {
   const indexByAppliance = new Map<string, number>(
     selectedAppliances.map((applianceId, index) => [applianceId, index])
   );
@@ -289,7 +457,15 @@ function mapAlerts(alertRows: ApiReading[], selectedAppliances: string[]) {
   });
 }
 
-export async function fetchDashboardData(rate = 11.5): Promise<DashboardData> {
+export async function fetchDashboardData(
+  options: FetchDashboardOptions = {}
+): Promise<DashboardData> {
+  const settings = options.settings || (await fetchAppSettings());
+  const rate =
+    typeof options.rate === "number" && Number.isFinite(options.rate) && options.rate >= 0
+      ? options.rate
+      : settings.electricityRate;
+
   const readingsRes = await fetchJson("/api/readings?limit=5000");
   const readings: ApiReading[] = Array.isArray(readingsRes?.data) ? readingsRes.data : [];
 
@@ -303,17 +479,33 @@ export async function fetchDashboardData(rate = 11.5): Promise<DashboardData> {
 
   const selectedAppliances = pickThreeAppliances([...latestByAppliance.keys()]);
   const dailyByAppliance = computeDailyKwh(readings);
-  const nodeSummaries = buildNodeSummaries(selectedAppliances, dailyByAppliance, latestByAppliance, rate);
+  const nodeSummaries = buildNodeSummaries(
+    selectedAppliances,
+    dailyByAppliance,
+    latestByAppliance,
+    rate,
+    settings.nodeLabels
+  );
   const chartData = buildChartData(selectedAppliances, dailyByAppliance);
 
   let alerts: Alert[] = [];
   try {
     const alertsRes = await fetchJson("/api/alerts?limit=50");
     const alertRows: ApiReading[] = Array.isArray(alertsRes?.data) ? alertsRes.data : [];
-    alerts = mapAlerts(alertRows, selectedAppliances);
+    alerts = mapAlerts(
+      alertRows,
+      selectedAppliances,
+      settings.nodeLabels,
+      settings.nodeThresholds
+    );
   } catch (_error) {
     const fallbackRows = readings.filter((reading) => reading.abnormal || reading.powerW > reading.thresholdW);
-    alerts = mapAlerts(fallbackRows.slice(0, 50), selectedAppliances);
+    alerts = mapAlerts(
+      fallbackRows.slice(0, 50),
+      selectedAppliances,
+      settings.nodeLabels,
+      settings.nodeThresholds
+    );
   }
 
   return {

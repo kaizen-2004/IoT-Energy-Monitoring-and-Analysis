@@ -1,25 +1,12 @@
 import { useEffect, useState } from "react";
 import { Bell, DollarSign, MapPin, Palette, Save, Tag } from "lucide-react";
 import { toast } from "sonner";
-import { API_BASE } from "../utils/mockData";
+import { API_BASE, fetchAppSettings, saveAppSettings } from "../utils/mockData";
 import { getSavedThemeMode, saveTheme, type ThemeMode } from "../utils/theme";
 
 function defaultMonth() {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-}
-
-function parseArray<T>(rawValue: string | null, fallback: T): T {
-  if (!rawValue) {
-    return fallback;
-  }
-
-  try {
-    const parsed = JSON.parse(rawValue);
-    return Array.isArray(parsed) ? (parsed as T) : fallback;
-  } catch (_error) {
-    return fallback;
-  }
 }
 
 export default function Settings() {
@@ -33,43 +20,64 @@ export default function Settings() {
   const [node3Threshold, setNode3Threshold] = useState<string>("600");
   const [timezone, setTimezone] = useState<string>("Asia/Manila");
   const [themeMode, setThemeMode] = useState<ThemeMode>("light");
+  const [isSavingBilling, setIsSavingBilling] = useState<boolean>(false);
+  const [isSavingNodes, setIsSavingNodes] = useState<boolean>(false);
+  const [isSavingInsight, setIsSavingInsight] = useState<boolean>(false);
 
   useEffect(() => {
-    const savedRate = window.localStorage.getItem("electricityRate");
-    if (savedRate) {
-      setMonthlyRate(savedRate);
-    }
-
-    const savedMonth = window.localStorage.getItem("effectiveMonth");
-    if (savedMonth) {
-      setEffectiveMonth(savedMonth);
-    }
-
-    const savedLabels = parseArray<string[]>(window.localStorage.getItem("nodeLabels"), ["Node 1", "Node 2", "Node 3"]);
-    setNode1Label(savedLabels[0] || "Node 1");
-    setNode2Label(savedLabels[1] || "Node 2");
-    setNode3Label(savedLabels[2] || "Node 3");
-
-    const savedThresholds = parseArray<number[]>(window.localStorage.getItem("nodeThresholds"), [500, 800, 600]);
-    setNode1Threshold(String(savedThresholds[0] || 500));
-    setNode2Threshold(String(savedThresholds[1] || 800));
-    setNode3Threshold(String(savedThresholds[2] || 600));
-
-    const savedTimezone = window.localStorage.getItem("timezone");
-    if (savedTimezone) {
-      setTimezone(savedTimezone);
-    }
-
     setThemeMode(getSavedThemeMode());
+
+    const loadSettings = async () => {
+      const settings = await fetchAppSettings();
+      setMonthlyRate(String(settings.electricityRate));
+      setEffectiveMonth(settings.effectiveMonth || defaultMonth());
+      setNode1Label(settings.nodeLabels[0] || "Node 1");
+      setNode2Label(settings.nodeLabels[1] || "Node 2");
+      setNode3Label(settings.nodeLabels[2] || "Node 3");
+      setNode1Threshold(String(settings.nodeThresholds[0] || 500));
+      setNode2Threshold(String(settings.nodeThresholds[1] || 800));
+      setNode3Threshold(String(settings.nodeThresholds[2] || 600));
+      setTimezone(settings.timezone || "Asia/Manila");
+    };
+
+    loadSettings().catch((error) => {
+      toast.error(
+        `Could not load cloud settings. Using local fallback. ${error instanceof Error ? error.message : ""}`
+      );
+    });
   }, []);
 
-  const handleSaveBilling = () => {
-    window.localStorage.setItem("electricityRate", monthlyRate);
-    window.localStorage.setItem("effectiveMonth", effectiveMonth);
-    toast.success("Billing settings saved");
+  const handleSaveBilling = async () => {
+    const rateValue = Number(monthlyRate);
+    if (!Number.isFinite(rateValue) || rateValue < 0) {
+      toast.error("Monthly rate must be a number greater than or equal to 0.");
+      return;
+    }
+
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(effectiveMonth)) {
+      toast.error("Effective month must be in YYYY-MM format.");
+      return;
+    }
+
+    setIsSavingBilling(true);
+    try {
+      const settings = await saveAppSettings({
+        electricityRate: rateValue,
+        effectiveMonth
+      });
+      setMonthlyRate(String(settings.electricityRate));
+      setEffectiveMonth(settings.effectiveMonth);
+      toast.success("Billing settings saved (cloud + local)");
+    } catch (error) {
+      toast.error(
+        `Saved locally only. Cloud sync failed: ${error instanceof Error ? error.message : "Unknown error"}`
+      );
+    } finally {
+      setIsSavingBilling(false);
+    }
   };
 
-  const handleSaveNodes = () => {
+  const handleSaveNodes = async () => {
     const labels = [node1Label, node2Label, node3Label].map((value, index) => value.trim() || `Node ${index + 1}`);
     const thresholds = [
       Number.parseInt(node1Threshold, 10) || 500,
@@ -77,14 +85,41 @@ export default function Settings() {
       Number.parseInt(node3Threshold, 10) || 600
     ];
 
-    window.localStorage.setItem("nodeLabels", JSON.stringify(labels));
-    window.localStorage.setItem("nodeThresholds", JSON.stringify(thresholds));
-    toast.success("Node settings saved");
+    setIsSavingNodes(true);
+    try {
+      const settings = await saveAppSettings({
+        nodeLabels: labels,
+        nodeThresholds: thresholds
+      });
+      setNode1Label(settings.nodeLabels[0] || "Node 1");
+      setNode2Label(settings.nodeLabels[1] || "Node 2");
+      setNode3Label(settings.nodeLabels[2] || "Node 3");
+      setNode1Threshold(String(settings.nodeThresholds[0] || 500));
+      setNode2Threshold(String(settings.nodeThresholds[1] || 800));
+      setNode3Threshold(String(settings.nodeThresholds[2] || 600));
+      toast.success("Node settings saved (cloud + local)");
+    } catch (error) {
+      toast.error(
+        `Saved locally only. Cloud sync failed: ${error instanceof Error ? error.message : "Unknown error"}`
+      );
+    } finally {
+      setIsSavingNodes(false);
+    }
   };
 
-  const handleSaveInsight = () => {
-    window.localStorage.setItem("timezone", timezone);
-    toast.success("Insight settings saved");
+  const handleSaveInsight = async () => {
+    setIsSavingInsight(true);
+    try {
+      const settings = await saveAppSettings({ timezone });
+      setTimezone(settings.timezone || "Asia/Manila");
+      toast.success("Insight settings saved (cloud + local)");
+    } catch (error) {
+      toast.error(
+        `Saved locally only. Cloud sync failed: ${error instanceof Error ? error.message : "Unknown error"}`
+      );
+    } finally {
+      setIsSavingInsight(false);
+    }
   };
 
   const handleSaveAppearance = () => {
@@ -136,6 +171,15 @@ export default function Settings() {
               type="month"
               value={effectiveMonth}
               onChange={(event) => setEffectiveMonth(event.target.value)}
+              onFocus={(event) => {
+                if ("showPicker" in event.currentTarget) {
+                  try {
+                    event.currentTarget.showPicker();
+                  } catch (_error) {
+                    // Native picker may be unavailable in some browsers.
+                  }
+                }
+              }}
               className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-950 dark:text-gray-100"
             />
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">This month label is used in exports and estimated costs</p>
@@ -144,10 +188,11 @@ export default function Settings() {
           <div className="pt-4">
             <button
               onClick={handleSaveBilling}
+              disabled={isSavingBilling}
               className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
             >
               <Save className="w-4 h-4" />
-              Save Billing Settings
+              {isSavingBilling ? "Saving..." : "Save Billing Settings"}
             </button>
           </div>
         </div>
@@ -274,10 +319,11 @@ export default function Settings() {
           <div className="pt-4">
             <button
               onClick={handleSaveNodes}
+              disabled={isSavingNodes}
               className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
             >
               <Save className="w-4 h-4" />
-              Save Node Settings
+              {isSavingNodes ? "Saving..." : "Save Node Settings"}
             </button>
           </div>
         </div>
@@ -322,10 +368,11 @@ export default function Settings() {
           <div className="pt-4">
             <button
               onClick={handleSaveInsight}
+              disabled={isSavingInsight}
               className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
             >
               <Save className="w-4 h-4" />
-              Save Insight Settings
+              {isSavingInsight ? "Saving..." : "Save Insight Settings"}
             </button>
           </div>
         </div>
