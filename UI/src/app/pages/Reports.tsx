@@ -54,6 +54,11 @@ export default function Reports() {
   const totalCost = totalKWh * rate;
 
   const handleGeneratePDF = async () => {
+    if (isLoading && nodeSummaries.length === 0) {
+      toast.info("Data is still loading. Please wait a moment then export.");
+      return;
+    }
+
     setIsGenerating(true);
     toast.info("Generating PDF report...");
 
@@ -209,7 +214,8 @@ export default function Reports() {
       toast.success("PDF report generated");
     } catch (error) {
       console.error("Error generating PDF:", error);
-      toast.error("Failed to generate PDF report");
+      const details = error instanceof Error ? error.message : "Unknown export error";
+      toast.error(`Failed to generate PDF report: ${details}`);
     } finally {
       setIsGenerating(false);
     }
@@ -223,13 +229,13 @@ export default function Reports() {
       </div>
 
       <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 p-6">
-        <div className="flex items-center gap-2 mb-6">
+        <div className="flex flex-wrap items-center gap-2 mb-6">
           <FileText className="w-5 h-5 text-gray-700 dark:text-gray-300" />
           <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Export Settings</h2>
           <button
             type="button"
             onClick={loadData}
-            className="ml-auto inline-flex items-center gap-2 px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300"
+            className="w-full sm:w-auto sm:ml-auto inline-flex items-center justify-center gap-2 px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300"
           >
             <RefreshCw className="w-4 h-4" />
             Reload Data
@@ -331,8 +337,8 @@ export default function Reports() {
           <div className="pt-4">
             <button
               onClick={handleGeneratePDF}
-              disabled={isGenerating || isLoading}
-              className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+              disabled={isGenerating}
+              className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
             >
               <Download className="w-5 h-5" />
               {isGenerating ? 'Generating PDF...' : 'Generate PDF Report'}
