@@ -44,11 +44,14 @@ Build a non-invasive, ESP32-based, Wi-Fi-enabled power monitoring system that:
 |       |-- server.js
 |       |-- store.js
 |       `-- validation.js
-|-- dashboard/
-|   |-- README.md
-|   |-- index.html
-|   |-- styles.css
-|   `-- app.js
+|-- UI/
+|   |-- package.json
+|   |-- vite.config.ts
+|   `-- src/
+|       `-- app/
+|           |-- pages/
+|           |-- components/
+|           `-- utils/
 |-- render.yaml
 `-- database/
     |-- README.md
@@ -66,12 +69,13 @@ cp .env.example .env
 npm run dev
 ```
 
-2. Dashboard:
+2. Dashboard UI (Figma-generated React app):
 ```bash
-cd dashboard
-python3 -m http.server 5500
+cd UI
+npm install
+npm run dev
 ```
-Open `http://localhost:5500`.
+Open the Vite URL shown in terminal (usually `http://localhost:5173`).
 
 3. ESP32 firmware:
 - Copy `firmware/esp32/config.example.h` to `firmware/esp32/config.h`.
@@ -84,7 +88,7 @@ Open `http://localhost:5500`.
 - Starter ESP32 firmware structure (sampling, RMS, POST flow).
 - Starter backend API (ingest, query, summary, alerts).
 - PostgreSQL-backed backend store (Supabase compatible).
-- Starter dashboard (real-time cards + trend chart + alerts list).
+- Figma-generated dashboard UI (Dashboard, Settings, Reports) wired to live backend API.
 - SQL schema draft for cloud persistence.
 - Render blueprint deployment config.
 - Curl-based ingestion simulator for testing without hardware.
