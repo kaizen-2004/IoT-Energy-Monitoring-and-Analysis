@@ -1,46 +1,47 @@
-const API_BASE = "http://localhost:8080";
+const API_BASE =
+  (window.APP_CONFIG && window.APP_CONFIG.API_BASE) || "http://localhost:8080";
+const PHT_TIMEZONE = "Asia/Manila";
+const NODE_COLORS = ["#1f6b55", "#3464c4", "#c46a17"];
+const FALLBACK_APPLIANCE_IDS = ["appliance-01", "appliance-02", "appliance-03"];
 
 const elements = {
-  applianceSelect: document.getElementById("appliance-select"),
   refreshMs: document.getElementById("refresh-ms"),
   applyBtn: document.getElementById("apply-btn"),
   badge: document.getElementById("connection-badge"),
   updatedAt: document.getElementById("updated-at"),
-  metricCurrent: document.getElementById("metric-current"),
-  metricPower: document.getElementById("metric-power"),
-  metricVoltage: document.getElementById("metric-voltage"),
-  metricAlerts: document.getElementById("metric-alerts"),
-  alertsList: document.getElementById("alerts-list")
+  apiBaseLabel: document.getElementById("api-base-label"),
+  metricTotalToday: document.getElementById("metric-total-today"),
+  metricTotalYesterday: document.getElementById("metric-total-yesterday"),
+  insightMessage: document.getElementById("insight-message"),
+  nodeCards: document.getElementById("node-cards")
 };
 
 let refreshTimer = null;
-let selectedAppliance = "";
 
-const chart = new Chart(document.getElementById("power-chart"), {
+const energyChart = new Chart(document.getElementById("power-chart"), {
   type: "line",
   data: {
     labels: [],
-    datasets: [
-      {
-        label: "Power (W)",
-        data: [],
-        borderWidth: 2,
-        borderColor: "#355e3b",
-        pointRadius: 1.6,
-        tension: 0.22
-      }
-    ]
+    datasets: []
   },
   options: {
     maintainAspectRatio: false,
+    interaction: {
+      mode: "nearest",
+      intersect: false
+    },
+    plugins: {
+      legend: {
+        position: "bottom"
+      }
+    },
     scales: {
-      x: {
-        ticks: {
-          maxRotation: 0
-        }
-      },
       y: {
-        beginAtZero: true
+        beginAtZero: true,
+        title: {
+          display: true,
+          text: "kWh"
+        }
       }
     }
   }
@@ -52,72 +53,186 @@ function setBadge(state, text) {
   elements.badge.textContent = text;
 }
 
-function formatTimestamp(iso) {
-  return new Date(iso).toLocaleTimeString();
+function formatKwh(value) {
+  return `${value.toFixed(3)} kWh`;
 }
 
-function updateApplianceOptions(readings) {
-  const currentValue = elements.applianceSelect.value;
-  const unique = [...new Set(readings.map((r) => r.applianceId))];
-  const names = new Map(readings.map((r) => [r.applianceId, r.applianceName]));
+function getPhtDayKey(dateInput) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: PHT_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(new Date(dateInput));
 
-  elements.applianceSelect.innerHTML = '<option value="">All appliances</option>';
-  unique.forEach((id) => {
-    const opt = document.createElement("option");
-    opt.value = id;
-    opt.textContent = names.get(id) || id;
-    elements.applianceSelect.appendChild(opt);
+  const map = {};
+  parts.forEach((p) => {
+    map[p.type] = p.value;
   });
-
-  if ([...elements.applianceSelect.options].some((o) => o.value === currentValue)) {
-    elements.applianceSelect.value = currentValue;
-  }
+  return `${map.year}-${map.month}-${map.day}`;
 }
 
-function updateMetrics(readings, alerts) {
-  if (!readings.length) {
-    elements.metricCurrent.textContent = "- A";
-    elements.metricPower.textContent = "- W";
-    elements.metricVoltage.textContent = "- V";
-    elements.metricAlerts.textContent = String(alerts.length);
-    return;
-  }
-
-  const latest = readings[0];
-  elements.metricCurrent.textContent = `${latest.currentRmsA.toFixed(3)} A`;
-  elements.metricPower.textContent = `${latest.powerW.toFixed(2)} W`;
-  elements.metricVoltage.textContent = `${latest.voltageRefV.toFixed(1)} V`;
-  elements.metricAlerts.textContent = String(alerts.length);
+function getPhtDayLabel(dayKey) {
+  const utcDate = new Date(`${dayKey}T00:00:00Z`);
+  return new Intl.DateTimeFormat("en-PH", {
+    timeZone: PHT_TIMEZONE,
+    month: "short",
+    day: "numeric"
+  }).format(utcDate);
 }
 
-function updateChart(readings) {
+function getLastNDayKeys(n) {
+  const now = new Date();
+  const keys = [];
+  for (let i = n - 1; i >= 0; i--) {
+    keys.push(getPhtDayKey(new Date(now.getTime() - i * 24 * 60 * 60 * 1000)));
+  }
+  return keys;
+}
+
+function analyzeEnergy(readings) {
   const sorted = [...readings].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-  chart.data.labels = sorted.map((r) => formatTimestamp(r.timestamp));
-  chart.data.datasets[0].data = sorted.map((r) => r.powerW);
-  chart.update();
+  const byAppliance = new Map();
+  const applianceMeta = new Map();
+  const latestByAppliance = new Map();
+  const dailyKwhByAppliance = new Map();
+
+  sorted.forEach((row) => {
+    if (!byAppliance.has(row.applianceId)) {
+      byAppliance.set(row.applianceId, []);
+    }
+    byAppliance.get(row.applianceId).push(row);
+    applianceMeta.set(row.applianceId, {
+      applianceName: row.applianceName || row.applianceId,
+      nodeId: row.nodeId || "-"
+    });
+    latestByAppliance.set(row.applianceId, row);
+  });
+
+  byAppliance.forEach((rows, applianceId) => {
+    const dailyTotals = {};
+    for (let i = 1; i < rows.length; i++) {
+      const prev = rows[i - 1];
+      const curr = rows[i];
+
+      const dtHours = (new Date(curr.timestamp) - new Date(prev.timestamp)) / 3600000;
+      if (dtHours <= 0 || dtHours > 6) {
+        continue;
+      }
+
+      const incKwh = (prev.powerW * dtHours) / 1000;
+      const dayKey = getPhtDayKey(curr.timestamp);
+      dailyTotals[dayKey] = (dailyTotals[dayKey] || 0) + incKwh;
+    }
+    dailyKwhByAppliance.set(applianceId, dailyTotals);
+  });
+
+  return {
+    applianceMeta,
+    latestByAppliance,
+    dailyKwhByAppliance
+  };
 }
 
-function updateAlerts(alerts) {
-  elements.alertsList.innerHTML = "";
-  if (!alerts.length) {
-    const li = document.createElement("li");
-    li.textContent = "No alerts in current data window.";
-    elements.alertsList.appendChild(li);
+function pickThreeAppliances(applianceMeta) {
+  const ids = [...applianceMeta.keys()].sort();
+  const selected = [...ids];
+
+  FALLBACK_APPLIANCE_IDS.forEach((id) => {
+    if (selected.length < 3 && !selected.includes(id)) {
+      selected.push(id);
+    }
+  });
+
+  return selected.slice(0, 3);
+}
+
+function updateKpis(analysis) {
+  const todayKey = getPhtDayKey(new Date());
+  const yesterdayKey = getPhtDayKey(new Date(Date.now() - 24 * 60 * 60 * 1000));
+
+  let totalToday = 0;
+  let totalYesterday = 0;
+
+  analysis.dailyKwhByAppliance.forEach((daily) => {
+    totalToday += daily[todayKey] || 0;
+    totalYesterday += daily[yesterdayKey] || 0;
+  });
+
+  elements.metricTotalToday.textContent = formatKwh(totalToday);
+  elements.metricTotalYesterday.textContent = `Yesterday: ${formatKwh(totalYesterday)}`;
+
+  const diff = totalToday - totalYesterday;
+  if (totalYesterday === 0) {
+    if (totalToday === 0) {
+      elements.insightMessage.textContent =
+        "No measurable kWh usage yet for today and yesterday (PHT).";
+    } else {
+      elements.insightMessage.textContent =
+        `You have consumed ${formatKwh(totalToday)} today. No baseline data for yesterday yet.`;
+    }
     return;
   }
 
-  alerts.forEach((row) => {
-    const li = document.createElement("li");
-    li.innerHTML = `
-      <div class="title">${row.applianceName} - ${row.powerW.toFixed(2)} W</div>
-      <div class="meta">
-        Threshold: ${row.thresholdW.toFixed(2)} W |
-        Abnormal: ${row.abnormal ? "Yes" : "No"} |
-        ${new Date(row.timestamp).toLocaleString()}
-      </div>
+  const percent = Math.abs((diff / totalYesterday) * 100);
+  if (diff > 0) {
+    elements.insightMessage.textContent =
+      `You have consumed ${formatKwh(Math.abs(diff))} more today than yesterday (+${percent.toFixed(1)}%).`;
+  } else if (diff < 0) {
+    elements.insightMessage.textContent =
+      `You have consumed ${formatKwh(Math.abs(diff))} less today than yesterday (-${percent.toFixed(1)}%).`;
+  } else {
+    elements.insightMessage.textContent = "You have consumed the same kWh today as yesterday.";
+  }
+}
+
+function updateNodeCards(analysis) {
+  const todayKey = getPhtDayKey(new Date());
+  const selectedIds = pickThreeAppliances(analysis.applianceMeta);
+
+  elements.nodeCards.innerHTML = "";
+
+  selectedIds.forEach((applianceId, index) => {
+    const meta = analysis.applianceMeta.get(applianceId) || {
+      applianceName: `Node ${index + 1}`,
+      nodeId: `node-${index + 1}`
+    };
+    const latest = analysis.latestByAppliance.get(applianceId);
+    const todayKwh = (analysis.dailyKwhByAppliance.get(applianceId) || {})[todayKey] || 0;
+
+    const article = document.createElement("article");
+    article.className = "card node-card";
+    article.innerHTML = `
+      <h3>Node ${index + 1}: ${meta.applianceName}</h3>
+      <p class="node-kwh">${formatKwh(todayKwh)}</p>
+      <p class="node-meta">Latest power: ${latest ? `${latest.powerW.toFixed(2)} W` : "No reading yet"}</p>
+      <p class="node-meta">Device ID: ${meta.nodeId}</p>
     `;
-    elements.alertsList.appendChild(li);
+    elements.nodeCards.appendChild(article);
   });
+}
+
+function updateChart(analysis) {
+  const selectedIds = pickThreeAppliances(analysis.applianceMeta);
+  const dayKeys = getLastNDayKeys(7);
+
+  energyChart.data.labels = dayKeys.map(getPhtDayLabel);
+  energyChart.data.datasets = selectedIds.map((applianceId, index) => {
+    const meta = analysis.applianceMeta.get(applianceId);
+    const daily = analysis.dailyKwhByAppliance.get(applianceId) || {};
+
+    return {
+      label: `Node ${index + 1} (${meta ? meta.applianceName : applianceId})`,
+      data: dayKeys.map((key) => Number((daily[key] || 0).toFixed(4))),
+      borderColor: NODE_COLORS[index % NODE_COLORS.length],
+      backgroundColor: NODE_COLORS[index % NODE_COLORS.length],
+      borderWidth: 2.5,
+      pointRadius: 2.8,
+      tension: 0.25
+    };
+  });
+
+  energyChart.update();
 }
 
 async function fetchJson(url) {
@@ -130,26 +245,23 @@ async function fetchJson(url) {
 
 async function refresh() {
   try {
-    const applianceFilter = selectedAppliance ? `&applianceId=${encodeURIComponent(selectedAppliance)}` : "";
-
-    const [readingsRes, alertsRes] = await Promise.all([
-      fetchJson(`${API_BASE}/api/readings?limit=120${applianceFilter}`),
-      fetchJson(`${API_BASE}/api/alerts?limit=25`)
-    ]);
-
+    const readingsRes = await fetchJson(`${API_BASE}/api/readings?limit=2000`);
     const readings = readingsRes.data || [];
-    const alerts = alertsRes.data || [];
 
-    updateApplianceOptions(readings);
-    updateMetrics(readings, alerts);
-    updateChart(readings);
-    updateAlerts(alerts);
+    const analysis = analyzeEnergy(readings);
+    updateKpis(analysis);
+    updateNodeCards(analysis);
+    updateChart(analysis);
 
     setBadge("ok", "Connected");
-    elements.updatedAt.textContent = `Last update: ${new Date().toLocaleTimeString()}`;
+    elements.updatedAt.textContent = `Last update: ${new Date().toLocaleTimeString("en-PH", {
+      hour12: true
+    })}`;
   } catch (error) {
     setBadge("error", "Disconnected");
-    elements.updatedAt.textContent = `Last update failed: ${new Date().toLocaleTimeString()}`;
+    elements.updatedAt.textContent = `Last update failed: ${new Date().toLocaleTimeString("en-PH", {
+      hour12: true
+    })}`;
   }
 }
 
@@ -162,16 +274,12 @@ function startRefreshLoop() {
   refreshTimer = setInterval(refresh, interval);
 }
 
-elements.applianceSelect.addEventListener("change", () => {
-  selectedAppliance = elements.applianceSelect.value;
-  refresh();
-});
-
 elements.applyBtn.addEventListener("click", () => {
   startRefreshLoop();
   refresh();
 });
 
+elements.apiBaseLabel.textContent = API_BASE;
 setBadge("warn", "Waiting for data");
 startRefreshLoop();
 refresh();

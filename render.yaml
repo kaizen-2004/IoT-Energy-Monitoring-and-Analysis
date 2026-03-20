@@ -15,3 +15,23 @@ services:
         value: "true"
       - key: DATABASE_URL
         sync: false
+
+  - type: web
+    runtime: static
+    name: iot-energy-monitor-dashboard
+    rootDir: dashboard
+    buildCommand: |
+      API_BASE_VALUE="${API_BASE:-http://localhost:8080}"
+      case "$API_BASE_VALUE" in
+        http://*|https://*) ;;
+        *) API_BASE_VALUE="https://${API_BASE_VALUE}" ;;
+      esac
+      printf "window.APP_CONFIG = { API_BASE: '%s' };\n" "$API_BASE_VALUE" > config.js
+    staticPublishPath: .
+    autoDeployTrigger: commit
+    envVars:
+      - key: API_BASE
+        fromService:
+          type: web
+          name: iot-energy-monitor-api
+          envVarKey: RENDER_EXTERNAL_HOSTNAME

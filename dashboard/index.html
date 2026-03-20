@@ -17,8 +17,8 @@
     <main class="layout">
       <header class="header">
         <div>
-          <h1>IoT Energy Monitoring</h1>
-          <p>Real-time and historical appliance power consumption</p>
+          <h1>Household Energy Dashboard</h1>
+          <p>Philippine context • Unit: kilowatt-hour (kWh) • Timezone: PHT (UTC+8)</p>
         </div>
         <div class="status-group">
           <span id="connection-badge" class="badge">Connecting...</span>
@@ -27,46 +27,35 @@
       </header>
 
       <section class="controls card">
-        <label for="appliance-select">Appliance</label>
-        <select id="appliance-select">
-          <option value="">All appliances</option>
-        </select>
         <label for="refresh-ms">Refresh (ms)</label>
         <input id="refresh-ms" type="number" min="1000" step="500" value="5000" />
         <button id="apply-btn">Apply</button>
+        <p class="muted inline-note">Data source: <span id="api-base-label"></span></p>
       </section>
 
       <section class="metrics">
         <article class="card metric">
-          <h2>Current RMS</h2>
-          <p id="metric-current" class="metric-value">- A</p>
+          <h2>Total Consumption Today</h2>
+          <p id="metric-total-today" class="metric-value">0.000 kWh</p>
+          <p id="metric-total-yesterday" class="metric-sub">Yesterday: 0.000 kWh</p>
         </article>
         <article class="card metric">
-          <h2>Power</h2>
-          <p id="metric-power" class="metric-value">- W</p>
-        </article>
-        <article class="card metric">
-          <h2>Voltage Reference</h2>
-          <p id="metric-voltage" class="metric-value">- V</p>
-        </article>
-        <article class="card metric">
-          <h2>Alerts in Window</h2>
-          <p id="metric-alerts" class="metric-value">0</p>
+          <h2>Today vs Yesterday Insight</h2>
+          <p id="insight-message" class="insight-text">Loading energy insight...</p>
         </article>
       </section>
 
-      <section class="grid">
+      <section id="node-cards" class="node-grid"></section>
+
+      <section class="chart-grid">
         <article class="card chart-card">
-          <h2>Power Trend</h2>
+          <h2>Energy Consumption Over Time (kWh)</h2>
+          <p class="muted">Last 7 days per appliance node (PHT)</p>
           <canvas id="power-chart"></canvas>
-        </article>
-        <article class="card list-card">
-          <h2>Recent Alerts</h2>
-          <ul id="alerts-list" class="alerts-list"></ul>
         </article>
       </section>
     </main>
+    <script src="./config.js"></script>
     <script src="./app.js"></script>
   </body>
 </html>
-

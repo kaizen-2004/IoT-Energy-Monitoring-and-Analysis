@@ -10,17 +10,22 @@ This guide lets you deploy the backend now, even without ESP32 hardware.
    - `database/schema.sql`
 4. Get your Postgres connection string (`DATABASE_URL`).
 
-## 2. Deploy Backend on Render (Free Web Service)
+## 2. Deploy Blueprint on Render (Backend + Dashboard)
 
 1. Push this repo to GitHub.
 2. In Render, create a **Blueprint** and select this repo.
 3. Render reads `render.yaml` automatically.
-4. Set required secret env var:
+4. Set required secret env var for backend:
    - `DATABASE_URL` = your Supabase Postgres URL
-5. Deploy service.
+5. Deploy Blueprint.
 
 Your backend base URL will look like:
 - `https://iot-energy-monitor-api.onrender.com`
+
+Your dashboard URL will look like:
+- `https://iot-energy-monitor-dashboard.onrender.com`
+
+The dashboard service automatically points to the backend service URL via `API_BASE`.
 
 ## 3. Validate Deployment Without Hardware
 
@@ -36,18 +41,10 @@ Then verify:
 - `GET /api/alerts?limit=20`
 - `GET /api/summary?windowMinutes=60`
 
-## 4. Connect Dashboard
+## 4. Open Live Dashboard
 
-Update:
-- `dashboard/app.js`
-- Set `API_BASE` to your Render backend URL
-
-Serve dashboard locally:
-
-```bash
-cd dashboard
-python3 -m http.server 5500
-```
+After deploy, open your Render static site URL:
+- `https://iot-energy-monitor-dashboard.onrender.com`
 
 ## 5. Connect ESP32 Later
 
@@ -62,4 +59,3 @@ When hardware arrives:
 1. Render free web services can sleep when idle (cold start on first request).
 2. Supabase free projects may pause after long inactivity.
 3. For best reliability during final testing/defense, keep steady traffic or upgrade plans.
-
