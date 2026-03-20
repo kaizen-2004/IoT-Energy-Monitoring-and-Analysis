@@ -309,12 +309,12 @@ export default function Dashboard() {
         <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-4">7-Day Energy Profile (kWh)</h2>
         <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">Grouped daily node usage with total household trend line</p>
 
-        <div className="h-72 md:h-80">
+        <div className="h-80 lg:h-96">
           {hasChartData ? (
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart
                 data={chartDataWithTotals}
-                margin={{ top: 24, right: 20, left: 12, bottom: 28 }}
+                margin={{ top: 24, right: 20, left: 12, bottom: 20 }}
                 barCategoryGap="26%"
                 barGap={6}
               >
