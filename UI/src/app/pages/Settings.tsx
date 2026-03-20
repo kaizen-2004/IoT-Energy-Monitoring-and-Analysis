@@ -174,7 +174,7 @@ export default function Settings() {
   };
 
   return (
-    <div className="space-y-6 max-w-6xl mx-auto">
+    <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-semibold text-gray-900 dark:text-gray-100">Settings</h1>
         <p className="text-gray-600 dark:text-gray-400 mt-1">Configure your energy monitoring preferences</p>

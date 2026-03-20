@@ -270,9 +270,12 @@ export default function Dashboard() {
         <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-4">7-Day Energy Profile (kWh)</h2>
         <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">Grouped daily node usage with total daily trend line</p>
 
-        <div className="h-80">
+        <div className="h-72 md:h-80">
           <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={chartDataWithTotals}>
+            <ComposedChart
+              data={chartDataWithTotals}
+              margin={{ top: 8, right: 16, left: 8, bottom: 24 }}
+            >
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="date" tick={{ fontSize: 12 }} />
               <YAxis label={{ value: "kWh", angle: -90, position: "insideLeft" }} tick={{ fontSize: 12 }} />
@@ -280,7 +283,7 @@ export default function Dashboard() {
                 contentStyle={{ backgroundColor: "#fff", border: "1px solid #e5e7eb" }}
                 formatter={(value: number) => `${Number(value).toFixed(3)} kWh`}
               />
-              <Legend />
+              <Legend verticalAlign="top" height={28} />
               <Bar
                 dataKey="node1"
                 name={`Node 1 (${nodeSummaries[0]?.label || "Node 1"})`}
@@ -303,10 +306,11 @@ export default function Dashboard() {
                 key="total-line"
                 type="monotone"
                 dataKey="total"
-                stroke="#111827"
-                strokeWidth={2.5}
+                stroke="#facc15"
+                strokeWidth={3}
                 name="Total Daily kWh"
-                dot={{ r: 3 }}
+                dot={{ r: 3, fill: "#facc15", stroke: "#fef3c7", strokeWidth: 1 }}
+                activeDot={{ r: 5, fill: "#facc15", stroke: "#fef3c7", strokeWidth: 2 }}
               />
             </ComposedChart>
           </ResponsiveContainer>
