@@ -1,5 +1,22 @@
-const API_BASE =
-  (window.APP_CONFIG && window.APP_CONFIG.API_BASE) || "http://localhost:8080";
+function resolveApiBase() {
+  const configured =
+    window.APP_CONFIG && typeof window.APP_CONFIG.API_BASE === "string"
+      ? window.APP_CONFIG.API_BASE.trim()
+      : "";
+
+  if (configured) {
+    return configured;
+  }
+
+  if (window.location && /onrender\.com$/.test(window.location.hostname)) {
+    const guessedHost = window.location.hostname.replace("dashboard", "api");
+    return `https://${guessedHost}`;
+  }
+
+  return "http://localhost:8080";
+}
+
+const API_BASE = resolveApiBase();
 const PHT_TIMEZONE = "Asia/Manila";
 const NODE_COLORS = ["#1f6b55", "#3464c4", "#c46a17"];
 const FALLBACK_APPLIANCE_IDS = ["appliance-01", "appliance-02", "appliance-03"];
@@ -18,34 +35,51 @@ const elements = {
 
 let refreshTimer = null;
 
-const energyChart = new Chart(document.getElementById("power-chart"), {
-  type: "line",
-  data: {
-    labels: [],
-    datasets: []
-  },
-  options: {
-    maintainAspectRatio: false,
-    interaction: {
-      mode: "nearest",
-      intersect: false
+function createChartSafely() {
+  const canvas = document.getElementById("power-chart");
+  if (!canvas) {
+    return null;
+  }
+
+  if (typeof window.Chart === "undefined") {
+    const note = document.createElement("p");
+    note.className = "muted";
+    note.textContent = "Chart library unavailable. Metrics and node cards are still active.";
+    canvas.parentElement.appendChild(note);
+    return null;
+  }
+
+  return new Chart(canvas, {
+    type: "line",
+    data: {
+      labels: [],
+      datasets: []
     },
-    plugins: {
-      legend: {
-        position: "bottom"
-      }
-    },
-    scales: {
-      y: {
-        beginAtZero: true,
-        title: {
-          display: true,
-          text: "kWh"
+    options: {
+      maintainAspectRatio: false,
+      interaction: {
+        mode: "nearest",
+        intersect: false
+      },
+      plugins: {
+        legend: {
+          position: "bottom"
+        }
+      },
+      scales: {
+        y: {
+          beginAtZero: true,
+          title: {
+            display: true,
+            text: "kWh"
+          }
         }
       }
     }
-  }
-});
+  });
+}
+
+const energyChart = createChartSafely();
 
 function setBadge(state, text) {
   elements.badge.classList.remove("ok", "warn", "error");
@@ -213,6 +247,10 @@ function updateNodeCards(analysis) {
 }
 
 function updateChart(analysis) {
+  if (!energyChart) {
+    return;
+  }
+
   const selectedIds = pickThreeAppliances(analysis.applianceMeta);
   const dayKeys = getLastNDayKeys(7);
 
@@ -274,13 +312,17 @@ function startRefreshLoop() {
   refreshTimer = setInterval(refresh, interval);
 }
 
-elements.applyBtn.addEventListener("click", () => {
-  startRefreshLoop();
-  refresh();
-});
+if (elements.applyBtn) {
+  elements.applyBtn.addEventListener("click", () => {
+    startRefreshLoop();
+    refresh();
+  });
+}
 
-elements.apiBaseLabel.textContent = API_BASE;
+if (elements.apiBaseLabel) {
+  elements.apiBaseLabel.textContent = API_BASE;
+}
+
 setBadge("warn", "Waiting for data");
 startRefreshLoop();
 refresh();
-
