@@ -6,6 +6,42 @@ import { API_BASE, fetchAppSettings, fetchDashboardData } from "../utils/mockDat
 import type { Alert, DailyData, NodeSummary } from "../utils/mockData";
 import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
+type LegendPayloadItem = {
+  color?: string;
+  value?: string | number;
+};
+
+function toShortLegendLabel(value: string) {
+  if (value.startsWith("Node 1")) return "Node 1";
+  if (value.startsWith("Node 2")) return "Node 2";
+  if (value.startsWith("Node 3")) return "Node 3";
+  if (value.toLowerCase().includes("total")) return "Total";
+  return value;
+}
+
+function renderCompactLegend(props: { payload?: LegendPayloadItem[] }) {
+  const payload = props.payload || [];
+
+  return (
+    <div className="w-full grid grid-cols-2 sm:flex sm:flex-wrap sm:justify-center gap-x-4 gap-y-2 pt-1">
+      {payload.map((entry, index) => (
+        <div key={`${entry.value || "legend"}-${index}`} className="inline-flex items-center gap-2 min-w-0">
+          <span
+            className="inline-block w-2.5 h-2.5 rounded-sm flex-shrink-0"
+            style={{ backgroundColor: entry.color || "#94a3b8" }}
+          />
+          <span className="text-xs sm:hidden text-gray-700 dark:text-gray-300 truncate">
+            {toShortLegendLabel(String(entry.value || ""))}
+          </span>
+          <span className="hidden sm:inline text-sm text-gray-700 dark:text-gray-300 truncate">
+            {String(entry.value || "")}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function isoDate(daysFromToday: number) {
   const date = new Date();
   date.setDate(date.getDate() + daysFromToday);
@@ -179,6 +215,8 @@ export default function Reports() {
 
   const totalKWh = nodeSummaries.reduce((sum, node) => sum + node.todayKWh, 0);
   const totalCost = totalKWh * rate;
+  const selectedSectionCount =
+    (includeCharts ? 1 : 0) + (includeNodeTable ? 1 : 0) + (includeAlerts ? 1 : 0);
 
   const handleGeneratePDF = async () => {
     if (isLoading && nodeSummaries.length === 0) {
@@ -463,6 +501,21 @@ export default function Reports() {
               {isGenerating ? 'Generating PDF...' : 'Generate PDF Report'}
             </button>
           </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <div className="p-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+              <p className="text-sm text-gray-600 dark:text-gray-400">Date Range</p>
+              <p className="text-base font-semibold text-gray-900 dark:text-gray-100 mt-1">{startDate} to {endDate}</p>
+            </div>
+            <div className="p-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+              <p className="text-sm text-gray-600 dark:text-gray-400">Sections Included</p>
+              <p className="text-base font-semibold text-gray-900 dark:text-gray-100 mt-1">{selectedSectionCount} / 3 enabled</p>
+            </div>
+            <div className="p-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+              <p className="text-sm text-gray-600 dark:text-gray-400">Current Rate</p>
+              <p className="text-base font-semibold text-gray-900 dark:text-gray-100 mt-1">₱{rate.toFixed(2)} per kWh</p>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -499,7 +552,7 @@ export default function Reports() {
                       <XAxis dataKey="date" tick={{ fontSize: 12 }} />
                       <YAxis label={{ value: 'kWh', angle: -90, position: 'insideLeft' }} tick={{ fontSize: 12 }} />
                       <Tooltip contentStyle={{ backgroundColor: '#fff', border: '1px solid #e5e7eb' }} />
-                      <Legend />
+                      <Legend verticalAlign="top" height={54} content={renderCompactLegend} />
                       <Line type="monotone" dataKey="node1" stroke="#9333ea" strokeWidth={2} name={`Node 1 (${nodeSummaries[0]?.label || "Node 1"})`} dot={{ r: 4 }} />
                       <Line type="monotone" dataKey="node2" stroke="#f97316" strokeWidth={2} name={`Node 2 (${nodeSummaries[1]?.label || "Node 2"})`} dot={{ r: 4 }} />
                       <Line type="monotone" dataKey="node3" stroke="#06b6d4" strokeWidth={2} name={`Node 3 (${nodeSummaries[2]?.label || "Node 3"})`} dot={{ r: 4 }} />

@@ -28,6 +28,42 @@ import {
 } from "../utils/mockData";
 import type { Alert, DailyData, NodeSummary } from "../utils/mockData";
 
+type LegendPayloadItem = {
+  color?: string;
+  value?: string | number;
+};
+
+function toShortLegendLabel(value: string) {
+  if (value.startsWith("Node 1")) return "Node 1";
+  if (value.startsWith("Node 2")) return "Node 2";
+  if (value.startsWith("Node 3")) return "Node 3";
+  if (value.toLowerCase().includes("total")) return "Total";
+  return value;
+}
+
+function renderCompactLegend(props: { payload?: LegendPayloadItem[] }) {
+  const payload = props.payload || [];
+
+  return (
+    <div className="w-full grid grid-cols-2 sm:flex sm:flex-wrap sm:justify-center gap-x-4 gap-y-2 pt-1">
+      {payload.map((entry, index) => (
+        <div key={`${entry.value || "legend"}-${index}`} className="inline-flex items-center gap-2 min-w-0">
+          <span
+            className="inline-block w-2.5 h-2.5 rounded-sm flex-shrink-0"
+            style={{ backgroundColor: entry.color || "#94a3b8" }}
+          />
+          <span className="text-xs sm:hidden text-gray-700 dark:text-gray-300 truncate">
+            {toShortLegendLabel(String(entry.value || ""))}
+          </span>
+          <span className="hidden sm:inline text-sm text-gray-700 dark:text-gray-300 truncate">
+            {String(entry.value || "")}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const [lastUpdated, setLastUpdated] = useState<string>(getPHTTime());
   const [isConnected, setIsConnected] = useState<boolean>(true);
@@ -75,6 +111,9 @@ export default function Dashboard() {
     ...row,
     total: Number((row.node1 + row.node2 + row.node3).toFixed(4))
   }));
+  const hasChartData = chartDataWithTotals.some(
+    (row) => row.node1 > 0 || row.node2 > 0 || row.node3 > 0 || row.total > 0
+  );
   const difference = todayTotal - yesterdayTotal;
   const percentChange = yesterdayTotal > 0 ? (difference / yesterdayTotal) * 100 : 0;
 
@@ -268,52 +307,76 @@ export default function Dashboard() {
 
       <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 p-6">
         <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-4">7-Day Energy Profile (kWh)</h2>
-        <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">Grouped daily node usage with total daily trend line</p>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">Grouped daily node usage with total household trend line</p>
 
         <div className="h-72 md:h-80">
-          <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart
-              data={chartDataWithTotals}
-              margin={{ top: 8, right: 16, left: 8, bottom: 24 }}
-            >
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="date" tick={{ fontSize: 12 }} />
-              <YAxis label={{ value: "kWh", angle: -90, position: "insideLeft" }} tick={{ fontSize: 12 }} />
-              <Tooltip
-                contentStyle={{ backgroundColor: "#fff", border: "1px solid #e5e7eb" }}
-                formatter={(value: number) => `${Number(value).toFixed(3)} kWh`}
-              />
-              <Legend verticalAlign="top" height={28} />
-              <Bar
-                dataKey="node1"
-                name={`Node 1 (${nodeSummaries[0]?.label || "Node 1"})`}
-                fill="#7c3aed"
-                radius={[3, 3, 0, 0]}
-              />
-              <Bar
-                dataKey="node2"
-                name={`Node 2 (${nodeSummaries[1]?.label || "Node 2"})`}
-                fill="#ea580c"
-                radius={[3, 3, 0, 0]}
-              />
-              <Bar
-                dataKey="node3"
-                name={`Node 3 (${nodeSummaries[2]?.label || "Node 3"})`}
-                fill="#0891b2"
-                radius={[3, 3, 0, 0]}
-              />
-              <Line
-                key="total-line"
-                type="monotone"
-                dataKey="total"
-                stroke="#facc15"
-                strokeWidth={3}
-                name="Total Daily kWh"
-                dot={{ r: 3, fill: "#facc15", stroke: "#fef3c7", strokeWidth: 1 }}
-                activeDot={{ r: 5, fill: "#facc15", stroke: "#fef3c7", strokeWidth: 2 }}
-              />
-            </ComposedChart>
-          </ResponsiveContainer>
+          {hasChartData ? (
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart
+                data={chartDataWithTotals}
+                margin={{ top: 24, right: 20, left: 12, bottom: 28 }}
+                barCategoryGap="26%"
+                barGap={6}
+              >
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="date" tick={{ fontSize: 12 }} tickMargin={10} />
+                <YAxis
+                  label={{ value: "kWh", angle: -90, position: "insideLeft" }}
+                  tick={{ fontSize: 12 }}
+                  tickMargin={8}
+                />
+                <Tooltip
+                  cursor={{ fill: "rgba(148, 163, 184, 0.14)" }}
+                  contentStyle={{ backgroundColor: "#fff", border: "1px solid #e5e7eb", borderRadius: "10px" }}
+                  labelFormatter={(label: string | number) => `Date: ${label}`}
+                  formatter={(value: number | string, name: string) => [
+                    `${Number(value).toFixed(3)} kWh`,
+                    name
+                  ]}
+                />
+                <Legend
+                  verticalAlign="top"
+                  height={54}
+                  content={renderCompactLegend}
+                />
+                <Bar
+                  dataKey="node1"
+                  name={`Node 1 (${nodeSummaries[0]?.label || "Node 1"})`}
+                  fill="#7c3aed"
+                  radius={[4, 4, 0, 0]}
+                  barSize={20}
+                />
+                <Bar
+                  dataKey="node2"
+                  name={`Node 2 (${nodeSummaries[1]?.label || "Node 2"})`}
+                  fill="#ea580c"
+                  radius={[4, 4, 0, 0]}
+                  barSize={20}
+                />
+                <Bar
+                  dataKey="node3"
+                  name={`Node 3 (${nodeSummaries[2]?.label || "Node 3"})`}
+                  fill="#0891b2"
+                  radius={[4, 4, 0, 0]}
+                  barSize={20}
+                />
+                <Line
+                  key="total-line"
+                  type="linear"
+                  dataKey="total"
+                  stroke="#facc15"
+                  strokeWidth={3}
+                  name="Total Daily kWh"
+                  dot={{ r: 3, fill: "#facc15", stroke: "#fef3c7", strokeWidth: 1 }}
+                  activeDot={{ r: 5, fill: "#facc15", stroke: "#fef3c7", strokeWidth: 2 }}
+                />
+              </ComposedChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="h-full flex items-center justify-center rounded-lg border border-dashed border-gray-300 dark:border-gray-700 text-sm text-gray-600 dark:text-gray-400">
+              No readings yet for the past 7 days. Data will appear after ingest starts.
+            </div>
+          )}
         </div>
       </div>
 

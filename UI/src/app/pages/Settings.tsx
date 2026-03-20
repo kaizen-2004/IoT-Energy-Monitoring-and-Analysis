@@ -186,94 +186,111 @@ export default function Settings() {
           <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Billing Settings</h2>
         </div>
 
-        <div className="space-y-4 max-w-none">
-          <div>
-            <label htmlFor="monthly-rate" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Monthly Rate (PHP/kWh)
-            </label>
-            <div className="relative min-w-0">
-              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-600 dark:text-gray-400">₱</span>
-              <input
-                id="monthly-rate"
-                type="number"
-                step="0.01"
-                min="0"
-                value={monthlyRate}
-                onChange={(event) => setMonthlyRate(event.target.value)}
-                className="w-full min-w-0 pl-8 pr-28 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-950 dark:text-gray-100"
-                placeholder="e.g., 13.80"
-              />
-              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-500 dark:text-gray-400">per kWh</span>
-            </div>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Enter your electricity provider rate per kilowatt-hour</p>
-          </div>
-
-          <div>
-            <label htmlFor="effective-month" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Effective Month
-            </label>
-            {supportsNativeMonthInput ? (
-              <input
-                id="effective-month"
-                type="month"
-                value={effectiveMonth}
-                onChange={(event) => setEffectiveMonth(event.target.value)}
-                onFocus={(event) => {
-                  if ("showPicker" in event.currentTarget) {
-                    try {
-                      event.currentTarget.showPicker();
-                    } catch (_error) {
-                      // Native picker may be unavailable in some browsers.
-                    }
-                  }
-                }}
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-950 dark:text-gray-100"
-              />
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <select
-                  id="effective-month-value"
-                  value={effectiveMonthValue}
-                  onChange={(event) => setEffectiveMonth(`${effectiveYear}-${event.target.value}`)}
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-950 dark:text-gray-100"
-                >
-                  {MONTH_OPTIONS.map((month) => (
-                    <option key={month.value} value={month.value}>
-                      {month.label}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  id="effective-month-year"
-                  value={effectiveYear}
-                  onChange={(event) => setEffectiveMonth(`${event.target.value}-${effectiveMonthValue}`)}
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-950 dark:text-gray-100"
-                >
-                  {yearOptions.map((year) => (
-                    <option key={year} value={year}>
-                      {year}
-                    </option>
-                  ))}
-                </select>
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+          <div className="space-y-4 xl:col-span-2">
+            <div>
+              <label htmlFor="monthly-rate" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Monthly Rate (PHP/kWh)
+              </label>
+              <div className="relative min-w-0">
+                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-600 dark:text-gray-400">₱</span>
+                <input
+                  id="monthly-rate"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={monthlyRate}
+                  onChange={(event) => setMonthlyRate(event.target.value)}
+                  className="w-full min-w-0 pl-8 pr-28 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-950 dark:text-gray-100"
+                  placeholder="e.g., 13.80"
+                />
+                <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-500 dark:text-gray-400">per kWh</span>
               </div>
-            )}
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">This month label is used in exports and estimated costs</p>
-            {!supportsNativeMonthInput && (
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                Your browser does not provide a native month picker, so dropdown selectors are shown instead.
-              </p>
-            )}
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Enter your electricity provider rate per kilowatt-hour</p>
+            </div>
+
+            <div>
+              <label htmlFor="effective-month" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Effective Month
+              </label>
+              {supportsNativeMonthInput ? (
+                <input
+                  id="effective-month"
+                  type="month"
+                  value={effectiveMonth}
+                  onChange={(event) => setEffectiveMonth(event.target.value)}
+                  onFocus={(event) => {
+                    if ("showPicker" in event.currentTarget) {
+                      try {
+                        event.currentTarget.showPicker();
+                      } catch (_error) {
+                        // Native picker may be unavailable in some browsers.
+                      }
+                    }
+                  }}
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-950 dark:text-gray-100"
+                />
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <select
+                    id="effective-month-value"
+                    value={effectiveMonthValue}
+                    onChange={(event) => setEffectiveMonth(`${effectiveYear}-${event.target.value}`)}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-950 dark:text-gray-100"
+                  >
+                    {MONTH_OPTIONS.map((month) => (
+                      <option key={month.value} value={month.value}>
+                        {month.label}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    id="effective-month-year"
+                    value={effectiveYear}
+                    onChange={(event) => setEffectiveMonth(`${event.target.value}-${effectiveMonthValue}`)}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-950 dark:text-gray-100"
+                  >
+                    {yearOptions.map((year) => (
+                      <option key={year} value={year}>
+                        {year}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">This month label is used in exports and estimated costs</p>
+              {!supportsNativeMonthInput && (
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  Your browser does not provide a native month picker, so dropdown selectors are shown instead.
+                </p>
+              )}
+            </div>
+
+            <div className="pt-4">
+              <button
+                onClick={handleSaveBilling}
+                disabled={isSavingBilling}
+                className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                <Save className="w-4 h-4" />
+                {isSavingBilling ? "Saving..." : "Save Billing Settings"}
+              </button>
+            </div>
           </div>
 
-          <div className="pt-4">
-            <button
-              onClick={handleSaveBilling}
-              disabled={isSavingBilling}
-              className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              <Save className="w-4 h-4" />
-              {isSavingBilling ? "Saving..." : "Save Billing Settings"}
-            </button>
+          <div className="space-y-3">
+            <div className="rounded-lg border border-blue-200 dark:border-blue-900 bg-blue-50 dark:bg-blue-950/30 p-4">
+              <p className="text-sm text-blue-700 dark:text-blue-300">Current Billing Snapshot</p>
+              <p className="text-2xl font-semibold text-blue-900 dark:text-blue-100 mt-1">₱{Number(monthlyRate || 0).toFixed(2)}</p>
+              <p className="text-sm text-blue-700 dark:text-blue-300">per kWh</p>
+              <p className="text-sm text-blue-700 dark:text-blue-300 mt-2">Effective: {effectiveMonth || defaultMonth()}</p>
+            </div>
+            <div className="rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800 p-4">
+              <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Tip</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                Update this each billing cycle so dashboard cost estimates stay accurate.
+              </p>
+            </div>
           </div>
         </div>
       </div>
@@ -284,127 +301,155 @@ export default function Settings() {
           <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Node Settings</h2>
         </div>
 
-        <div className="space-y-6 max-w-none">
-          <div className="p-4 bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-900 rounded-lg">
-            <h3 className="font-medium text-gray-900 dark:text-gray-100 mb-4">Node 1 (ESP32-NODE-001)</h3>
-            <div className="space-y-3">
-              <div>
-                <label htmlFor="node1-label" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Appliance Label
-                </label>
-                <input
-                  id="node1-label"
-                  type="text"
-                  value={node1Label}
-                  onChange={(event) => setNode1Label(event.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 bg-white dark:bg-gray-950 dark:text-gray-100"
-                  placeholder="e.g., Node 1"
-                />
-              </div>
-
-              <div>
-                <label htmlFor="node1-threshold" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Power Threshold
-                </label>
-                <div className="relative min-w-0">
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+          <div className="space-y-6 xl:col-span-2">
+            <div className="p-4 bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-900 rounded-lg">
+              <h3 className="font-medium text-gray-900 dark:text-gray-100 mb-4">Node 1 (ESP32-NODE-001)</h3>
+              <div className="space-y-3">
+                <div>
+                  <label htmlFor="node1-label" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Appliance Label
+                  </label>
                   <input
-                    id="node1-threshold"
-                    type="number"
-                    min="0"
-                    value={node1Threshold}
-                    onChange={(event) => setNode1Threshold(event.target.value)}
-                    className="w-full pr-10 px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 bg-white dark:bg-gray-950 dark:text-gray-100"
-                    placeholder="500"
+                    id="node1-label"
+                    type="text"
+                    value={node1Label}
+                    onChange={(event) => setNode1Label(event.target.value)}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 bg-white dark:bg-gray-950 dark:text-gray-100"
+                    placeholder="e.g., Node 1"
                   />
-                  <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-500 dark:text-gray-400">W</span>
+                </div>
+
+                <div>
+                  <label htmlFor="node1-threshold" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Power Threshold
+                  </label>
+                  <div className="relative min-w-0">
+                    <input
+                      id="node1-threshold"
+                      type="number"
+                      min="0"
+                      value={node1Threshold}
+                      onChange={(event) => setNode1Threshold(event.target.value)}
+                      className="w-full pr-10 px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 bg-white dark:bg-gray-950 dark:text-gray-100"
+                      placeholder="500"
+                    />
+                    <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-500 dark:text-gray-400">W</span>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
 
-          <div className="p-4 bg-orange-50 dark:bg-orange-950/40 border border-orange-200 dark:border-orange-900 rounded-lg">
-            <h3 className="font-medium text-gray-900 dark:text-gray-100 mb-4">Node 2 (ESP32-NODE-002)</h3>
-            <div className="space-y-3">
-              <div>
-                <label htmlFor="node2-label" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Appliance Label
-                </label>
-                <input
-                  id="node2-label"
-                  type="text"
-                  value={node2Label}
-                  onChange={(event) => setNode2Label(event.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 bg-white dark:bg-gray-950 dark:text-gray-100"
-                  placeholder="e.g., Node 2"
-                />
-              </div>
-
-              <div>
-                <label htmlFor="node2-threshold" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Power Threshold
-                </label>
-                <div className="relative min-w-0">
+            <div className="p-4 bg-orange-50 dark:bg-orange-950/40 border border-orange-200 dark:border-orange-900 rounded-lg">
+              <h3 className="font-medium text-gray-900 dark:text-gray-100 mb-4">Node 2 (ESP32-NODE-002)</h3>
+              <div className="space-y-3">
+                <div>
+                  <label htmlFor="node2-label" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Appliance Label
+                  </label>
                   <input
-                    id="node2-threshold"
-                    type="number"
-                    min="0"
-                    value={node2Threshold}
-                    onChange={(event) => setNode2Threshold(event.target.value)}
-                    className="w-full pr-10 px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 bg-white dark:bg-gray-950 dark:text-gray-100"
-                    placeholder="800"
+                    id="node2-label"
+                    type="text"
+                    value={node2Label}
+                    onChange={(event) => setNode2Label(event.target.value)}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 bg-white dark:bg-gray-950 dark:text-gray-100"
+                    placeholder="e.g., Node 2"
                   />
-                  <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-500 dark:text-gray-400">W</span>
+                </div>
+
+                <div>
+                  <label htmlFor="node2-threshold" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Power Threshold
+                  </label>
+                  <div className="relative min-w-0">
+                    <input
+                      id="node2-threshold"
+                      type="number"
+                      min="0"
+                      value={node2Threshold}
+                      onChange={(event) => setNode2Threshold(event.target.value)}
+                      className="w-full pr-10 px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 bg-white dark:bg-gray-950 dark:text-gray-100"
+                      placeholder="800"
+                    />
+                    <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-500 dark:text-gray-400">W</span>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
 
-          <div className="p-4 bg-cyan-50 dark:bg-cyan-950/40 border border-cyan-200 dark:border-cyan-900 rounded-lg">
-            <h3 className="font-medium text-gray-900 dark:text-gray-100 mb-4">Node 3 (ESP32-NODE-003)</h3>
-            <div className="space-y-3">
-              <div>
-                <label htmlFor="node3-label" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Appliance Label
-                </label>
-                <input
-                  id="node3-label"
-                  type="text"
-                  value={node3Label}
-                  onChange={(event) => setNode3Label(event.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 bg-white dark:bg-gray-950 dark:text-gray-100"
-                  placeholder="e.g., Node 3"
-                />
-              </div>
-
-              <div>
-                <label htmlFor="node3-threshold" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Power Threshold
-                </label>
-                <div className="relative min-w-0">
+            <div className="p-4 bg-cyan-50 dark:bg-cyan-950/40 border border-cyan-200 dark:border-cyan-900 rounded-lg">
+              <h3 className="font-medium text-gray-900 dark:text-gray-100 mb-4">Node 3 (ESP32-NODE-003)</h3>
+              <div className="space-y-3">
+                <div>
+                  <label htmlFor="node3-label" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Appliance Label
+                  </label>
                   <input
-                    id="node3-threshold"
-                    type="number"
-                    min="0"
-                    value={node3Threshold}
-                    onChange={(event) => setNode3Threshold(event.target.value)}
-                    className="w-full pr-10 px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 bg-white dark:bg-gray-950 dark:text-gray-100"
-                    placeholder="600"
+                    id="node3-label"
+                    type="text"
+                    value={node3Label}
+                    onChange={(event) => setNode3Label(event.target.value)}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 bg-white dark:bg-gray-950 dark:text-gray-100"
+                    placeholder="e.g., Node 3"
                   />
-                  <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-500 dark:text-gray-400">W</span>
+                </div>
+
+                <div>
+                  <label htmlFor="node3-threshold" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Power Threshold
+                  </label>
+                  <div className="relative min-w-0">
+                    <input
+                      id="node3-threshold"
+                      type="number"
+                      min="0"
+                      value={node3Threshold}
+                      onChange={(event) => setNode3Threshold(event.target.value)}
+                      className="w-full pr-10 px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 bg-white dark:bg-gray-950 dark:text-gray-100"
+                      placeholder="600"
+                    />
+                    <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-500 dark:text-gray-400">W</span>
+                  </div>
                 </div>
               </div>
             </div>
+
+            <div className="pt-4">
+              <button
+                onClick={handleSaveNodes}
+                disabled={isSavingNodes}
+                className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                <Save className="w-4 h-4" />
+                {isSavingNodes ? "Saving..." : "Save Node Settings"}
+              </button>
+            </div>
           </div>
 
-          <div className="pt-4">
-            <button
-              onClick={handleSaveNodes}
-              disabled={isSavingNodes}
-              className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              <Save className="w-4 h-4" />
-              {isSavingNodes ? "Saving..." : "Save Node Settings"}
-            </button>
+          <div className="space-y-3">
+            <div className="rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800 p-4">
+              <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Node Overview</p>
+              <div className="mt-3 space-y-2 text-sm">
+                <div className="flex items-center justify-between text-gray-700 dark:text-gray-300">
+                  <span>{node1Label || "Node 1"}</span>
+                  <span>{node1Threshold || "500"} W</span>
+                </div>
+                <div className="flex items-center justify-between text-gray-700 dark:text-gray-300">
+                  <span>{node2Label || "Node 2"}</span>
+                  <span>{node2Threshold || "800"} W</span>
+                </div>
+                <div className="flex items-center justify-between text-gray-700 dark:text-gray-300">
+                  <span>{node3Label || "Node 3"}</span>
+                  <span>{node3Threshold || "600"} W</span>
+                </div>
+              </div>
+            </div>
+            <div className="rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800 p-4">
+              <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Tip</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                Keep thresholds close to real appliance limits so alerts are useful and not noisy.
+              </p>
+            </div>
           </div>
         </div>
       </div>
@@ -415,45 +460,60 @@ export default function Settings() {
           <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Insight Settings</h2>
         </div>
 
-        <div className="space-y-4 max-w-none">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Comparison Window</label>
-            <div className="px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">
-              <p className="text-sm text-gray-900 dark:text-gray-100">Today vs Yesterday (Fixed)</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Compares current day consumption with previous day</p>
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+          <div className="space-y-4 xl:col-span-2">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Comparison Window</label>
+              <div className="px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">
+                <p className="text-sm text-gray-900 dark:text-gray-100">Today vs Yesterday (Fixed)</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Compares current day consumption with previous day</p>
+              </div>
+            </div>
+
+            <div>
+              <label htmlFor="timezone" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <div className="flex items-center gap-2">
+                  <MapPin className="w-4 h-4" />
+                  Timezone
+                </div>
+              </label>
+              <select
+                id="timezone"
+                value={timezone}
+                onChange={(event) => setTimezone(event.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-950 dark:text-gray-100"
+              >
+                <option value="Asia/Manila">Asia/Manila (PHT, UTC+8)</option>
+                <option value="UTC">UTC (GMT)</option>
+                <option value="America/New_York">America/New York (EST)</option>
+                <option value="Europe/London">Europe/London (GMT)</option>
+              </select>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">All timestamps and daily calculations use this timezone</p>
+            </div>
+
+            <div className="pt-4">
+              <button
+                onClick={handleSaveInsight}
+                disabled={isSavingInsight}
+                className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                <Save className="w-4 h-4" />
+                {isSavingInsight ? "Saving..." : "Save Insight Settings"}
+              </button>
             </div>
           </div>
 
-          <div>
-            <label htmlFor="timezone" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              <div className="flex items-center gap-2">
-                <MapPin className="w-4 h-4" />
-                Timezone
-              </div>
-            </label>
-            <select
-              id="timezone"
-              value={timezone}
-              onChange={(event) => setTimezone(event.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-950 dark:text-gray-100"
-            >
-              <option value="Asia/Manila">Asia/Manila (PHT, UTC+8)</option>
-              <option value="UTC">UTC (GMT)</option>
-              <option value="America/New_York">America/New York (EST)</option>
-              <option value="Europe/London">Europe/London (GMT)</option>
-            </select>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">All timestamps and daily calculations use this timezone</p>
-          </div>
-
-          <div className="pt-4">
-            <button
-              onClick={handleSaveInsight}
-              disabled={isSavingInsight}
-              className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              <Save className="w-4 h-4" />
-              {isSavingInsight ? "Saving..." : "Save Insight Settings"}
-            </button>
+          <div className="space-y-3">
+            <div className="rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800 p-4">
+              <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Insight Preview</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mt-2">
+                You have consumed more/less kWh today compared to yesterday.
+              </p>
+            </div>
+            <div className="rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800 p-4">
+              <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Selected Timezone</p>
+              <p className="text-sm text-gray-700 dark:text-gray-300 mt-1">{timezone}</p>
+            </div>
           </div>
         </div>
       </div>
@@ -464,36 +524,49 @@ export default function Settings() {
           <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Appearance & API</h2>
         </div>
 
-        <div className="space-y-4 max-w-none">
-          <div>
-            <label htmlFor="theme-mode" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Theme Mode
-            </label>
-            <select
-              id="theme-mode"
-              value={themeMode}
-              onChange={(event) => setThemeMode(event.target.value as ThemeMode)}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-950 dark:text-gray-100"
-            >
-              <option value="light">Light</option>
-              <option value="dark">Dark</option>
-              <option value="system">System</option>
-            </select>
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+          <div className="space-y-4 xl:col-span-2">
+            <div>
+              <label htmlFor="theme-mode" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Theme Mode
+              </label>
+              <select
+                id="theme-mode"
+                value={themeMode}
+                onChange={(event) => setThemeMode(event.target.value as ThemeMode)}
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-950 dark:text-gray-100"
+              >
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+                <option value="system">System</option>
+              </select>
+            </div>
+
+            <div className="px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">
+              <p className="text-sm text-gray-700 dark:text-gray-300">Current API Base</p>
+              <p className="text-sm font-medium text-gray-900 dark:text-gray-100 break-all">{API_BASE}</p>
+            </div>
+
+            <div className="pt-4">
+              <button
+                onClick={handleSaveAppearance}
+                className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                <Save className="w-4 h-4" />
+                Save Appearance
+              </button>
+            </div>
           </div>
 
-          <div className="px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">
-            <p className="text-sm text-gray-700 dark:text-gray-300">Current API Base</p>
-            <p className="text-sm font-medium text-gray-900 dark:text-gray-100 break-all">{API_BASE}</p>
-          </div>
-
-          <div className="pt-4">
-            <button
-              onClick={handleSaveAppearance}
-              className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              <Save className="w-4 h-4" />
-              Save Appearance
-            </button>
+          <div className="space-y-3">
+            <div className="rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800 p-4">
+              <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Theme Preview</p>
+              <p className="text-sm text-gray-700 dark:text-gray-300 mt-1 capitalize">{themeMode}</p>
+            </div>
+            <div className="rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800 p-4">
+              <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Connection</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">API base is shown at left for quick environment checks.</p>
+            </div>
           </div>
         </div>
       </div>
