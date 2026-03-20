@@ -1,0 +1,17 @@
+services:
+  - type: web
+    runtime: node
+    name: iot-energy-monitor-api
+    rootDir: backend
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    autoDeployTrigger: commit
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: DB_SSL
+        value: "true"
+      - key: DATABASE_URL
+        sync: false

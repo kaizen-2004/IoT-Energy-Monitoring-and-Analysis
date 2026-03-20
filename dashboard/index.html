@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Home Energy Monitoring Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  </head>
+  <body>
+    <main class="layout">
+      <header class="header">
+        <div>
+          <h1>IoT Energy Monitoring</h1>
+          <p>Real-time and historical appliance power consumption</p>
+        </div>
+        <div class="status-group">
+          <span id="connection-badge" class="badge">Connecting...</span>
+          <span id="updated-at" class="muted">Last update: -</span>
+        </div>
+      </header>
+
+      <section class="controls card">
+        <label for="appliance-select">Appliance</label>
+        <select id="appliance-select">
+          <option value="">All appliances</option>
+        </select>
+        <label for="refresh-ms">Refresh (ms)</label>
+        <input id="refresh-ms" type="number" min="1000" step="500" value="5000" />
+        <button id="apply-btn">Apply</button>
+      </section>
+
+      <section class="metrics">
+        <article class="card metric">
+          <h2>Current RMS</h2>
+          <p id="metric-current" class="metric-value">- A</p>
+        </article>
+        <article class="card metric">
+          <h2>Power</h2>
+          <p id="metric-power" class="metric-value">- W</p>
+        </article>
+        <article class="card metric">
+          <h2>Voltage Reference</h2>
+          <p id="metric-voltage" class="metric-value">- V</p>
+        </article>
+        <article class="card metric">
+          <h2>Alerts in Window</h2>
+          <p id="metric-alerts" class="metric-value">0</p>
+        </article>
+      </section>
+
+      <section class="grid">
+        <article class="card chart-card">
+          <h2>Power Trend</h2>
+          <canvas id="power-chart"></canvas>
+        </article>
+        <article class="card list-card">
+          <h2>Recent Alerts</h2>
+          <ul id="alerts-list" class="alerts-list"></ul>
+        </article>
+      </section>
+    </main>
+    <script src="./app.js"></script>
+  </body>
+</html>
+
