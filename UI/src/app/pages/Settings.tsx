@@ -9,6 +9,44 @@ function defaultMonth() {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 }
 
+const MONTH_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: "01", label: "January" },
+  { value: "02", label: "February" },
+  { value: "03", label: "March" },
+  { value: "04", label: "April" },
+  { value: "05", label: "May" },
+  { value: "06", label: "June" },
+  { value: "07", label: "July" },
+  { value: "08", label: "August" },
+  { value: "09", label: "September" },
+  { value: "10", label: "October" },
+  { value: "11", label: "November" },
+  { value: "12", label: "December" }
+];
+
+function getEffectiveYear(value: string) {
+  const year = value.slice(0, 4);
+  return /^\d{4}$/.test(year) ? year : String(new Date().getFullYear());
+}
+
+function getEffectiveMonthValue(value: string) {
+  const month = value.slice(5, 7);
+  return /^(0[1-9]|1[0-2])$/.test(month) ? month : String(new Date().getMonth() + 1).padStart(2, "0");
+}
+
+function getYearOptions(selectedYear: string) {
+  const currentYear = new Date().getFullYear();
+  const selected = Number(selectedYear);
+  const safeSelected = Number.isFinite(selected) ? selected : currentYear;
+  const minYear = Math.min(currentYear - 5, safeSelected);
+  const maxYear = Math.max(currentYear + 5, safeSelected);
+  const years: string[] = [];
+  for (let year = maxYear; year >= minYear; year -= 1) {
+    years.push(String(year));
+  }
+  return years;
+}
+
 export default function Settings() {
   const [monthlyRate, setMonthlyRate] = useState<string>("11.5");
   const [effectiveMonth, setEffectiveMonth] = useState<string>(defaultMonth());
@@ -23,9 +61,17 @@ export default function Settings() {
   const [isSavingBilling, setIsSavingBilling] = useState<boolean>(false);
   const [isSavingNodes, setIsSavingNodes] = useState<boolean>(false);
   const [isSavingInsight, setIsSavingInsight] = useState<boolean>(false);
+  const [supportsNativeMonthInput, setSupportsNativeMonthInput] = useState<boolean>(true);
+
+  const effectiveYear = getEffectiveYear(effectiveMonth);
+  const effectiveMonthValue = getEffectiveMonthValue(effectiveMonth);
+  const yearOptions = getYearOptions(effectiveYear);
 
   useEffect(() => {
     setThemeMode(getSavedThemeMode());
+    const monthProbe = document.createElement("input");
+    monthProbe.setAttribute("type", "month");
+    setSupportsNativeMonthInput(monthProbe.type === "month");
 
     const loadSettings = async () => {
       const settings = await fetchAppSettings();
@@ -128,7 +174,7 @@ export default function Settings() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-w-6xl mx-auto">
       <div>
         <h1 className="text-3xl font-semibold text-gray-900 dark:text-gray-100">Settings</h1>
         <p className="text-gray-600 dark:text-gray-400 mt-1">Configure your energy monitoring preferences</p>
@@ -140,7 +186,7 @@ export default function Settings() {
           <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Billing Settings</h2>
         </div>
 
-        <div className="space-y-4 max-w-2xl">
+        <div className="space-y-4 max-w-none">
           <div>
             <label htmlFor="monthly-rate" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Monthly Rate (PHP/kWh)
@@ -166,23 +212,57 @@ export default function Settings() {
             <label htmlFor="effective-month" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Effective Month
             </label>
-            <input
-              id="effective-month"
-              type="month"
-              value={effectiveMonth}
-              onChange={(event) => setEffectiveMonth(event.target.value)}
-              onFocus={(event) => {
-                if ("showPicker" in event.currentTarget) {
-                  try {
-                    event.currentTarget.showPicker();
-                  } catch (_error) {
-                    // Native picker may be unavailable in some browsers.
+            {supportsNativeMonthInput ? (
+              <input
+                id="effective-month"
+                type="month"
+                value={effectiveMonth}
+                onChange={(event) => setEffectiveMonth(event.target.value)}
+                onFocus={(event) => {
+                  if ("showPicker" in event.currentTarget) {
+                    try {
+                      event.currentTarget.showPicker();
+                    } catch (_error) {
+                      // Native picker may be unavailable in some browsers.
+                    }
                   }
-                }
-              }}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-950 dark:text-gray-100"
-            />
+                }}
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-950 dark:text-gray-100"
+              />
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <select
+                  id="effective-month-value"
+                  value={effectiveMonthValue}
+                  onChange={(event) => setEffectiveMonth(`${effectiveYear}-${event.target.value}`)}
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-950 dark:text-gray-100"
+                >
+                  {MONTH_OPTIONS.map((month) => (
+                    <option key={month.value} value={month.value}>
+                      {month.label}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  id="effective-month-year"
+                  value={effectiveYear}
+                  onChange={(event) => setEffectiveMonth(`${event.target.value}-${effectiveMonthValue}`)}
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-950 dark:text-gray-100"
+                >
+                  {yearOptions.map((year) => (
+                    <option key={year} value={year}>
+                      {year}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">This month label is used in exports and estimated costs</p>
+            {!supportsNativeMonthInput && (
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                Your browser does not provide a native month picker, so dropdown selectors are shown instead.
+              </p>
+            )}
           </div>
 
           <div className="pt-4">
@@ -204,7 +284,7 @@ export default function Settings() {
           <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Node Settings</h2>
         </div>
 
-        <div className="space-y-6 max-w-2xl">
+        <div className="space-y-6 max-w-none">
           <div className="p-4 bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-900 rounded-lg">
             <h3 className="font-medium text-gray-900 dark:text-gray-100 mb-4">Node 1 (ESP32-NODE-001)</h3>
             <div className="space-y-3">
@@ -335,7 +415,7 @@ export default function Settings() {
           <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Insight Settings</h2>
         </div>
 
-        <div className="space-y-4 max-w-2xl">
+        <div className="space-y-4 max-w-none">
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Comparison Window</label>
             <div className="px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">
@@ -384,7 +464,7 @@ export default function Settings() {
           <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Appearance & API</h2>
         </div>
 
-        <div className="space-y-4 max-w-2xl">
+        <div className="space-y-4 max-w-none">
           <div>
             <label htmlFor="theme-mode" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Theme Mode

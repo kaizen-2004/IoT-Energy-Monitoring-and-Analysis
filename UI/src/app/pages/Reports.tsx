@@ -341,7 +341,7 @@ export default function Reports() {
   };
   
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-w-6xl mx-auto">
       <div>
         <h1 className="text-3xl font-semibold text-gray-900 dark:text-gray-100">Reports & Export</h1>
         <p className="text-gray-600 dark:text-gray-400 mt-1">Generate and export energy consumption reports</p>
@@ -364,7 +364,7 @@ export default function Reports() {
         {errorMessage && <p className="text-sm text-red-600 mb-4">API error: {errorMessage}</p>}
         {isLoading && <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">Loading latest report data...</p>}
 
-        <div className="space-y-6 max-w-2xl">
+        <div className="space-y-6 max-w-none">
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
               <div className="flex items-center gap-2">
