@@ -110,8 +110,8 @@ export default function Settings() {
             <label htmlFor="monthly-rate" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Monthly Rate (PHP/kWh)
             </label>
-            <div className="flex items-center gap-2">
-              <span className="text-gray-600 dark:text-gray-400">₱</span>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-gray-600 dark:text-gray-400 w-4 text-center">₱</span>
               <input
                 id="monthly-rate"
                 type="number"
@@ -119,10 +119,10 @@ export default function Settings() {
                 min="0"
                 value={monthlyRate}
                 onChange={(event) => setMonthlyRate(event.target.value)}
-                className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-950 dark:text-gray-100"
+                className="min-w-0 flex-1 px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-950 dark:text-gray-100"
                 placeholder="11.50"
               />
-              <span className="text-gray-600 dark:text-gray-400">per kWh</span>
+              <span className="text-gray-600 dark:text-gray-400 w-full sm:w-auto pl-6 sm:pl-0">per kWh</span>
             </div>
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Enter your electricity provider rate per kilowatt-hour</p>
           </div>
@@ -144,7 +144,7 @@ export default function Settings() {
           <div className="pt-4">
             <button
               onClick={handleSaveBilling}
-              className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
             >
               <Save className="w-4 h-4" />
               Save Billing Settings
@@ -265,7 +265,7 @@ export default function Settings() {
           <div className="pt-4">
             <button
               onClick={handleSaveNodes}
-              className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
             >
               <Save className="w-4 h-4" />
               Save Node Settings
@@ -313,7 +313,7 @@ export default function Settings() {
           <div className="pt-4">
             <button
               onClick={handleSaveInsight}
-              className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
             >
               <Save className="w-4 h-4" />
               Save Insight Settings
@@ -353,7 +353,7 @@ export default function Settings() {
           <div className="pt-4">
             <button
               onClick={handleSaveAppearance}
-              className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
             >
               <Save className="w-4 h-4" />
               Save Appearance

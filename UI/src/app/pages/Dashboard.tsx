@@ -91,11 +91,11 @@ export default function Dashboard() {
       <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 p-6">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-semibold text-gray-900 dark:text-gray-100">IoT Household Energy Monitoring Dashboard</h1>
+            <h1 className="text-2xl sm:text-3xl leading-tight break-words font-semibold text-gray-900 dark:text-gray-100">IoT Household Energy Monitoring Dashboard</h1>
             <p className="text-gray-600 dark:text-gray-400 mt-1">Philippine context • Unit: kWh • Timezone: PHT (UTC+8)</p>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3 min-w-0">
             <div className="flex items-center gap-2">
               {isConnected ? (
                 <>
@@ -109,8 +109,8 @@ export default function Dashboard() {
                 </>
               )}
             </div>
-            <div className="h-6 w-px bg-gray-300 dark:bg-gray-700" />
-            <div className="text-sm text-gray-600 dark:text-gray-400">Last updated: {lastUpdated}</div>
+            <div className="hidden sm:block h-6 w-px bg-gray-300 dark:bg-gray-700" />
+            <div className="text-sm text-gray-600 dark:text-gray-400 break-words min-w-0">Last updated: {lastUpdated}</div>
           </div>
         </div>
       </div>
@@ -133,14 +133,14 @@ export default function Dashboard() {
             <span className="text-sm text-gray-600 dark:text-gray-400">seconds</span>
             <button
               onClick={loadData}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
             >
               <RefreshCw className="w-4 h-4" />
               Refresh Now
             </button>
           </div>
 
-          <div className="text-sm text-gray-600 dark:text-gray-400">
+          <div className="w-full sm:w-auto text-sm text-gray-600 dark:text-gray-400 break-all">
             Data Source: {API_BASE}
           </div>
         </div>
