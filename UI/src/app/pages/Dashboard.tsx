@@ -10,10 +10,11 @@ import {
   Zap
 } from "lucide-react";
 import {
+  Area,
+  ComposedChart,
   CartesianGrid,
   Legend,
   Line,
-  LineChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -63,6 +64,10 @@ export default function Dashboard() {
   const todayTotal = nodeSummaries.reduce((sum, node) => sum + node.todayKWh, 0);
   const yesterdayTotal = nodeSummaries.reduce((sum, node) => sum + node.yesterdayKWh, 0);
   const todayCostTotal = todayTotal * rate;
+  const chartDataWithTotals = chartData.map((row) => ({
+    ...row,
+    total: Number((row.node1 + row.node2 + row.node3).toFixed(4))
+  }));
   const difference = todayTotal - yesterdayTotal;
   const percentChange = yesterdayTotal > 0 ? (difference / yesterdayTotal) * 100 : 0;
 
@@ -121,16 +126,18 @@ export default function Dashboard() {
             <label htmlFor="refresh-interval" className="text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">
               Refresh Interval:
             </label>
-            <input
-              id="refresh-interval"
-              type="number"
-              min="5"
-              max="300"
-              value={refreshInterval}
-              onChange={(event) => setRefreshInterval(Number.parseInt(event.target.value, 10) || 30)}
-              className="px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg w-24 bg-white dark:bg-gray-950 dark:text-gray-100"
-            />
-            <span className="text-sm text-gray-600 dark:text-gray-400">seconds</span>
+            <div className="relative w-28">
+              <input
+                id="refresh-interval"
+                type="number"
+                min="5"
+                max="300"
+                value={refreshInterval}
+                onChange={(event) => setRefreshInterval(Number.parseInt(event.target.value, 10) || 30)}
+                className="w-full px-3 py-2 pr-10 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-950 dark:text-gray-100"
+              />
+              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-500 dark:text-gray-400">sec</span>
+            </div>
             <button
               onClick={loadData}
               className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
@@ -253,20 +260,57 @@ export default function Dashboard() {
       </div>
 
       <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 p-6">
-        <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-4">7-Day Energy Consumption Trend</h2>
+        <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-4">7-Day Energy Profile (kWh)</h2>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">Stacked node consumption with total daily trend</p>
 
         <div className="h-80">
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={chartData}>
+            <ComposedChart data={chartDataWithTotals}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="date" tick={{ fontSize: 12 }} />
               <YAxis label={{ value: "kWh", angle: -90, position: "insideLeft" }} tick={{ fontSize: 12 }} />
-              <Tooltip contentStyle={{ backgroundColor: "#fff", border: "1px solid #e5e7eb" }} />
+              <Tooltip
+                contentStyle={{ backgroundColor: "#fff", border: "1px solid #e5e7eb" }}
+                formatter={(value: number) => `${Number(value).toFixed(3)} kWh`}
+              />
               <Legend />
-              <Line key="node1-line" type="monotone" dataKey="node1" stroke="#9333ea" strokeWidth={2} name={`Node 1 (${nodeSummaries[0]?.label || "Node 1"})`} dot={{ r: 4 }} />
-              <Line key="node2-line" type="monotone" dataKey="node2" stroke="#f97316" strokeWidth={2} name={`Node 2 (${nodeSummaries[1]?.label || "Node 2"})`} dot={{ r: 4 }} />
-              <Line key="node3-line" type="monotone" dataKey="node3" stroke="#06b6d4" strokeWidth={2} name={`Node 3 (${nodeSummaries[2]?.label || "Node 3"})`} dot={{ r: 4 }} />
-            </LineChart>
+              <Area
+                type="monotone"
+                dataKey="node1"
+                stackId="nodes"
+                name={`Node 1 (${nodeSummaries[0]?.label || "Node 1"})`}
+                stroke="#7c3aed"
+                fill="#7c3aed"
+                fillOpacity={0.32}
+              />
+              <Area
+                type="monotone"
+                dataKey="node2"
+                stackId="nodes"
+                name={`Node 2 (${nodeSummaries[1]?.label || "Node 2"})`}
+                stroke="#ea580c"
+                fill="#ea580c"
+                fillOpacity={0.32}
+              />
+              <Area
+                type="monotone"
+                dataKey="node3"
+                stackId="nodes"
+                name={`Node 3 (${nodeSummaries[2]?.label || "Node 3"})`}
+                stroke="#0891b2"
+                fill="#0891b2"
+                fillOpacity={0.32}
+              />
+              <Line
+                key="total-line"
+                type="monotone"
+                dataKey="total"
+                stroke="#111827"
+                strokeWidth={2.5}
+                name="Total Daily kWh"
+                dot={{ r: 3 }}
+              />
+            </ComposedChart>
           </ResponsiveContainer>
         </div>
       </div>

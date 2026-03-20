@@ -110,8 +110,8 @@ export default function Settings() {
             <label htmlFor="monthly-rate" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Monthly Rate (PHP/kWh)
             </label>
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-gray-600 dark:text-gray-400 w-4 text-center">₱</span>
+            <div className="relative min-w-0">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-600 dark:text-gray-400">₱</span>
               <input
                 id="monthly-rate"
                 type="number"
@@ -119,10 +119,10 @@ export default function Settings() {
                 min="0"
                 value={monthlyRate}
                 onChange={(event) => setMonthlyRate(event.target.value)}
-                className="min-w-0 flex-1 px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-950 dark:text-gray-100"
-                placeholder="11.50"
+                className="w-full min-w-0 pl-8 pr-28 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-950 dark:text-gray-100"
+                placeholder="e.g., 13.80"
               />
-              <span className="text-gray-600 dark:text-gray-400 w-full sm:w-auto pl-6 sm:pl-0">per kWh</span>
+              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-500 dark:text-gray-400">per kWh</span>
             </div>
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Enter your electricity provider rate per kilowatt-hour</p>
           </div>
@@ -179,17 +179,20 @@ export default function Settings() {
 
               <div>
                 <label htmlFor="node1-threshold" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Power Threshold (W)
+                  Power Threshold
                 </label>
-                <input
-                  id="node1-threshold"
-                  type="number"
-                  min="0"
-                  value={node1Threshold}
-                  onChange={(event) => setNode1Threshold(event.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 bg-white dark:bg-gray-950 dark:text-gray-100"
-                  placeholder="500"
-                />
+                <div className="relative min-w-0">
+                  <input
+                    id="node1-threshold"
+                    type="number"
+                    min="0"
+                    value={node1Threshold}
+                    onChange={(event) => setNode1Threshold(event.target.value)}
+                    className="w-full pr-10 px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 bg-white dark:bg-gray-950 dark:text-gray-100"
+                    placeholder="500"
+                  />
+                  <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-500 dark:text-gray-400">W</span>
+                </div>
               </div>
             </div>
           </div>
@@ -213,17 +216,20 @@ export default function Settings() {
 
               <div>
                 <label htmlFor="node2-threshold" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Power Threshold (W)
+                  Power Threshold
                 </label>
-                <input
-                  id="node2-threshold"
-                  type="number"
-                  min="0"
-                  value={node2Threshold}
-                  onChange={(event) => setNode2Threshold(event.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 bg-white dark:bg-gray-950 dark:text-gray-100"
-                  placeholder="800"
-                />
+                <div className="relative min-w-0">
+                  <input
+                    id="node2-threshold"
+                    type="number"
+                    min="0"
+                    value={node2Threshold}
+                    onChange={(event) => setNode2Threshold(event.target.value)}
+                    className="w-full pr-10 px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 bg-white dark:bg-gray-950 dark:text-gray-100"
+                    placeholder="800"
+                  />
+                  <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-500 dark:text-gray-400">W</span>
+                </div>
               </div>
             </div>
           </div>
@@ -247,17 +253,20 @@ export default function Settings() {
 
               <div>
                 <label htmlFor="node3-threshold" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Power Threshold (W)
+                  Power Threshold
                 </label>
-                <input
-                  id="node3-threshold"
-                  type="number"
-                  min="0"
-                  value={node3Threshold}
-                  onChange={(event) => setNode3Threshold(event.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 bg-white dark:bg-gray-950 dark:text-gray-100"
-                  placeholder="600"
-                />
+                <div className="relative min-w-0">
+                  <input
+                    id="node3-threshold"
+                    type="number"
+                    min="0"
+                    value={node3Threshold}
+                    onChange={(event) => setNode3Threshold(event.target.value)}
+                    className="w-full pr-10 px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 bg-white dark:bg-gray-950 dark:text-gray-100"
+                    placeholder="600"
+                  />
+                  <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-500 dark:text-gray-400">W</span>
+                </div>
               </div>
             </div>
           </div>
