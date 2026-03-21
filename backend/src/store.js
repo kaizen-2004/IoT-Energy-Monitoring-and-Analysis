@@ -14,6 +14,53 @@ function isValidMonth(value) {
   return typeof value === "string" && /^\d{4}-(0[1-9]|1[0-2])$/.test(value);
 }
 
+function normalizeRateRow(row) {
+  return {
+    month: row.month_key,
+    ratePerKwh: Number(row.rate_per_kwh),
+    source:
+      typeof row.source === "string" && row.source.trim().length > 0
+        ? row.source.trim()
+        : "manual",
+    sourceUrl:
+      typeof row.source_url === "string" && row.source_url.trim().length > 0
+        ? row.source_url.trim()
+        : null,
+    verified: Boolean(row.verified),
+    updatedAt: row.updated_at || null
+  };
+}
+
+function resolveRateForMonth(rateHistory, month, fallbackRate) {
+  const sorted = [...rateHistory]
+    .filter((item) => isValidMonth(item.month) && Number.isFinite(item.ratePerKwh))
+    .sort((a, b) => a.month.localeCompare(b.month));
+
+  const exact = sorted.find((item) => item.month === month);
+  if (exact) {
+    return {
+      ratePerKwh: exact.ratePerKwh,
+      fromMonth: exact.month,
+      fallback: false
+    };
+  }
+
+  const previous = [...sorted].reverse().find((item) => item.month < month);
+  if (previous) {
+    return {
+      ratePerKwh: previous.ratePerKwh,
+      fromMonth: previous.month,
+      fallback: true
+    };
+  }
+
+  return {
+    ratePerKwh: fallbackRate,
+    fromMonth: null,
+    fallback: false
+  };
+}
+
 function normalizeNodeLabels(value) {
   if (!Array.isArray(value)) {
     return DEFAULT_NODE_LABELS;
@@ -99,9 +146,28 @@ class ReadingStore {
         `);
 
         await query(`
+          CREATE TABLE IF NOT EXISTS monthly_rates (
+            month_key TEXT PRIMARY KEY CHECK (month_key ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'),
+            rate_per_kwh DOUBLE PRECISION NOT NULL CHECK (rate_per_kwh >= 0),
+            source TEXT NOT NULL DEFAULT 'manual',
+            source_url TEXT,
+            verified BOOLEAN NOT NULL DEFAULT TRUE,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+          )
+        `);
+
+        await query(`
           INSERT INTO app_settings (id)
           VALUES (1)
           ON CONFLICT (id) DO NOTHING
+        `);
+
+        await query(`
+          INSERT INTO monthly_rates (month_key, rate_per_kwh, source, verified)
+          SELECT to_char(effective_month, 'YYYY-MM'), electricity_rate, 'manual', TRUE
+          FROM app_settings
+          WHERE id = 1
+          ON CONFLICT (month_key) DO NOTHING
         `);
       })();
     }
@@ -276,29 +342,150 @@ class ReadingStore {
     return Number(result.rows[0]?.count || 0);
   }
 
-  async getSettings() {
+  async getRateHistory(limit = 240) {
     await this.ensureSettingsTable();
+    const safeLimit = Number.isFinite(Number(limit))
+      ? Math.min(Math.max(Number(limit), 1), 1000)
+      : 240;
 
     const sql = `
       SELECT
-        electricity_rate,
-        to_char(effective_month, 'YYYY-MM') AS effective_month,
-        node_labels,
-        node_thresholds,
-        timezone,
+        month_key,
+        rate_per_kwh,
+        source,
+        source_url,
+        verified,
         updated_at
-      FROM app_settings
-      WHERE id = 1
-      LIMIT 1
+      FROM monthly_rates
+      ORDER BY month_key DESC
+      LIMIT $1
     `;
 
-    const result = await query(sql);
-    const row = result.rows[0];
-    if (!row) {
-      return DEFAULT_SETTINGS;
+    const result = await query(sql, [safeLimit]);
+    return result.rows.map(normalizeRateRow);
+  }
+
+  async upsertMonthlyRate(month, ratePerKwh, options = {}) {
+    await this.ensureSettingsTable();
+    if (!isValidMonth(month)) {
+      throw new Error("month must be in YYYY-MM format");
     }
 
-    return mapSettingsRow(row);
+    if (!Number.isFinite(Number(ratePerKwh)) || Number(ratePerKwh) < 0) {
+      throw new Error("ratePerKwh must be a finite number >= 0");
+    }
+
+    const source =
+      typeof options.source === "string" && options.source.trim().length > 0
+        ? options.source.trim()
+        : "manual";
+    const sourceUrl =
+      typeof options.sourceUrl === "string" && options.sourceUrl.trim().length > 0
+        ? options.sourceUrl.trim()
+        : null;
+    const verified = typeof options.verified === "boolean" ? options.verified : true;
+
+    const sql = `
+      INSERT INTO monthly_rates (
+        month_key,
+        rate_per_kwh,
+        source,
+        source_url,
+        verified
+      ) VALUES ($1, $2, $3, $4, $5)
+      ON CONFLICT (month_key)
+      DO UPDATE SET
+        rate_per_kwh = EXCLUDED.rate_per_kwh,
+        source = EXCLUDED.source,
+        source_url = EXCLUDED.source_url,
+        verified = EXCLUDED.verified,
+        updated_at = NOW()
+      RETURNING
+        month_key,
+        rate_per_kwh,
+        source,
+        source_url,
+        verified,
+        updated_at
+    `;
+
+    const result = await query(sql, [month, Number(ratePerKwh), source, sourceUrl, verified]);
+    const upserted = normalizeRateRow(result.rows[0]);
+
+    await query(
+      `
+        UPDATE app_settings
+        SET electricity_rate = $2, updated_at = NOW()
+        WHERE id = 1 AND to_char(effective_month, 'YYYY-MM') = $1
+      `,
+      [month, upserted.ratePerKwh]
+    );
+
+    return upserted;
+  }
+
+  async deleteMonthlyRate(month) {
+    await this.ensureSettingsTable();
+    if (!isValidMonth(month)) {
+      throw new Error("month must be in YYYY-MM format");
+    }
+
+    const sql = `
+      DELETE FROM monthly_rates
+      WHERE month_key = $1
+      RETURNING
+        month_key,
+        rate_per_kwh,
+        source,
+        source_url,
+        verified,
+        updated_at
+    `;
+    const result = await query(sql, [month]);
+    return result.rows.length > 0 ? normalizeRateRow(result.rows[0]) : null;
+  }
+
+  async getSettings() {
+    await this.ensureSettingsTable();
+
+    const [settingsResult, rateHistory] = await Promise.all([
+      query(
+        `
+          SELECT
+            electricity_rate,
+            to_char(effective_month, 'YYYY-MM') AS effective_month,
+            node_labels,
+            node_thresholds,
+            timezone,
+            updated_at
+          FROM app_settings
+          WHERE id = 1
+          LIMIT 1
+        `
+      ),
+      this.getRateHistory(240)
+    ]);
+
+    const row = settingsResult.rows[0];
+    if (!row) {
+      return {
+        ...DEFAULT_SETTINGS,
+        rateHistory: []
+      };
+    }
+
+    const mapped = mapSettingsRow(row);
+    const resolved = resolveRateForMonth(
+      rateHistory,
+      mapped.effectiveMonth,
+      mapped.electricityRate
+    );
+
+    return {
+      ...mapped,
+      electricityRate: resolved.ratePerKwh,
+      rateHistory
+    };
   }
 
   async saveSettings(partialSettings) {
@@ -354,8 +541,73 @@ class ReadingStore {
       nextSettings.timezone
     ];
 
-    const result = await query(sql, params);
-    return mapSettingsRow(result.rows[0]);
+    await query(sql, params);
+    await this.upsertMonthlyRate(nextSettings.effectiveMonth, nextSettings.electricityRate, {
+      source: "manual",
+      verified: true
+    });
+    return this.getSettings();
+  }
+
+  parseRateCandidatesFromText(text) {
+    const candidates = [];
+    const pattern =
+      /(?:₱|PHP\s*)?\s*([0-9]{1,2}(?:\.[0-9]{1,5})?)\s*(?:per|\/)\s*(?:kWh|KWH|kwh)/g;
+
+    let match = pattern.exec(text);
+    while (match) {
+      const value = Number(match[1]);
+      if (Number.isFinite(value) && value >= 0 && value <= 50) {
+        candidates.push(value);
+      }
+      match = pattern.exec(text);
+    }
+
+    const uniqueSorted = [...new Set(candidates)].sort((a, b) => a - b);
+    return uniqueSorted;
+  }
+
+  async fetchRateDraftFromUrl(url, month) {
+    await this.ensureSettingsTable();
+    if (typeof url !== "string" || url.trim().length === 0) {
+      throw new Error("url is required");
+    }
+
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Unable to fetch URL. HTTP ${response.status}`);
+    }
+
+    const html = await response.text();
+    const candidates = this.parseRateCandidatesFromText(html);
+    const rateHistory = await this.getRateHistory(240);
+
+    const monthToUse = isValidMonth(month)
+      ? month
+      : new Date().toISOString().slice(0, 7);
+    const fallback = resolveRateForMonth(
+      rateHistory,
+      monthToUse,
+      DEFAULT_SETTINGS.electricityRate
+    );
+
+    let recommendedRate = null;
+    if (candidates.length > 0) {
+      recommendedRate = candidates.reduce((best, current) => {
+        if (best === null) return current;
+        return Math.abs(current - fallback.ratePerKwh) < Math.abs(best - fallback.ratePerKwh)
+          ? current
+          : best;
+      }, null);
+    }
+
+    return {
+      month: monthToUse,
+      sourceUrl: url,
+      candidates,
+      recommendedRate,
+      fallbackRate: fallback.ratePerKwh
+    };
   }
 }
 

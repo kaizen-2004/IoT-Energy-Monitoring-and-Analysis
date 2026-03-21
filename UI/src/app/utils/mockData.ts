@@ -13,19 +13,35 @@ export interface ApiReading {
   receivedAt: string;
 }
 
+export interface MonthlyRate {
+  month: string;
+  ratePerKwh: number;
+  source: string;
+  sourceUrl: string | null;
+  verified: boolean;
+  updatedAt: string | null;
+}
+
+export interface RateResolution {
+  ratePerKwh: number;
+  fromMonth: string | null;
+  fallback: boolean;
+}
+
 export interface NodeSummary {
   nodeId: number;
   label: string;
   deviceId: string;
   applianceId: string;
-  todayKWh: number;
-  yesterdayKWh: number;
+  periodKWh: number;
+  previousMonthKWh: number;
   currentPower: number;
   estimatedCost: number;
 }
 
 export interface DailyData {
   date: string;
+  dayKey: string;
   node1: number;
   node2: number;
   node3: number;
@@ -47,6 +63,13 @@ export interface DashboardData {
   nodeSummaries: NodeSummary[];
   alerts: Alert[];
   readings: ApiReading[];
+  selectedMonth: string;
+  selectedMonthCoverageLabel: string;
+  selectedMonthTotalKWh: number;
+  selectedMonthTotalCost: number;
+  previousMonthKey: string;
+  previousMonthTotalKWh: number;
+  resolvedRate: RateResolution;
 }
 
 export interface AppSettings {
@@ -56,11 +79,20 @@ export interface AppSettings {
   nodeThresholds: number[];
   timezone: string;
   updatedAt: string | null;
+  rateHistory: MonthlyRate[];
 }
 
 interface FetchDashboardOptions {
   settings?: AppSettings;
-  rate?: number;
+  selectedMonth?: string;
+}
+
+interface RateDraftResult {
+  month: string;
+  sourceUrl: string;
+  candidates: number[];
+  recommendedRate: number | null;
+  fallbackRate: number;
 }
 
 const PHT_TIMEZONE = "Asia/Manila";
@@ -100,25 +132,40 @@ function resolveApiBase() {
 
 export const API_BASE = resolveApiBase();
 
-function defaultMonth() {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+function parsePhtParts(dateInput: Date | string) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: PHT_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(new Date(dateInput));
+
+  return parts.reduce<Record<string, string>>((acc, part) => {
+    if (part.type !== "literal") {
+      acc[part.type] = part.value;
+    }
+    return acc;
+  }, {});
+}
+
+export function defaultMonth() {
+  const parts = parsePhtParts(new Date());
+  return `${parts.year}-${parts.month}`;
+}
+
+function isMonthString(value: unknown) {
+  return typeof value === "string" && /^\d{4}-(0[1-9]|1[0-2])$/.test(value);
 }
 
 function normalizeMonth(value: unknown) {
-  if (typeof value !== "string") {
+  if (!isMonthString(value)) {
+    if (typeof value === "string" && /^\d{4}-(0[1-9]|1[0-2])-\d{2}$/.test(value)) {
+      return value.slice(0, 7);
+    }
     return defaultMonth();
   }
 
-  if (/^\d{4}-(0[1-9]|1[0-2])$/.test(value)) {
-    return value;
-  }
-
-  if (/^\d{4}-(0[1-9]|1[0-2])-\d{2}$/.test(value)) {
-    return value.slice(0, 7);
-  }
-
-  return defaultMonth();
+  return value;
 }
 
 function parseJsonArray<T>(value: string | null, fallback: T): T {
@@ -160,18 +207,72 @@ function normalizeNodeThresholds(value: unknown) {
   });
 }
 
+function normalizeRateHistory(
+  value: unknown,
+  fallbackMonth: string,
+  fallbackRate: number
+): MonthlyRate[] {
+  const rows = Array.isArray(value) ? value : [];
+  const normalized = rows
+    .map((item) => {
+      const source = item && typeof item === "object" ? (item as Record<string, unknown>) : {};
+      const month = normalizeMonth(source.month ?? source.month_key);
+      const rateCandidate = Number(source.ratePerKwh ?? source.rate_per_kwh);
+      if (!isMonthString(month) || !Number.isFinite(rateCandidate) || rateCandidate < 0) {
+        return null;
+      }
+
+      return {
+        month,
+        ratePerKwh: rateCandidate,
+        source:
+          typeof source.source === "string" && source.source.trim().length > 0
+            ? source.source.trim()
+            : "manual",
+        sourceUrl:
+          typeof source.sourceUrl === "string" && source.sourceUrl.trim().length > 0
+            ? source.sourceUrl.trim()
+            : typeof source.source_url === "string" && source.source_url.trim().length > 0
+              ? source.source_url.trim()
+              : null,
+        verified: source.verified === undefined ? true : Boolean(source.verified),
+        updatedAt:
+          typeof source.updatedAt === "string" && source.updatedAt.length > 0
+            ? source.updatedAt
+            : typeof source.updated_at === "string" && source.updated_at.length > 0
+              ? source.updated_at
+              : null
+      };
+    })
+    .filter((item): item is MonthlyRate => item !== null)
+    .sort((a, b) => b.month.localeCompare(a.month));
+
+  if (!normalized.some((item) => item.month === fallbackMonth)) {
+    normalized.unshift({
+      month: fallbackMonth,
+      ratePerKwh: fallbackRate,
+      source: "manual",
+      sourceUrl: null,
+      verified: true,
+      updatedAt: null
+    });
+  }
+
+  return normalized;
+}
+
 function normalizeSettings(value: unknown): AppSettings {
   const source = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
   const rateCandidate = Number(source.electricityRate ?? source.electricity_rate);
+  const effectiveMonth = normalizeMonth(source.effectiveMonth ?? source.effective_month);
+  const electricityRate =
+    Number.isFinite(rateCandidate) && rateCandidate >= 0 ? rateCandidate : DEFAULT_ELECTRICITY_RATE;
   const timezoneCandidate = source.timezone;
   const updatedAtCandidate = source.updatedAt ?? source.updated_at;
 
   return {
-    electricityRate:
-      Number.isFinite(rateCandidate) && rateCandidate >= 0
-        ? rateCandidate
-        : DEFAULT_ELECTRICITY_RATE,
-    effectiveMonth: normalizeMonth(source.effectiveMonth ?? source.effective_month),
+    electricityRate,
+    effectiveMonth,
     nodeLabels: normalizeNodeLabels(source.nodeLabels ?? source.node_labels),
     nodeThresholds: normalizeNodeThresholds(source.nodeThresholds ?? source.node_thresholds),
     timezone:
@@ -181,7 +282,12 @@ function normalizeSettings(value: unknown): AppSettings {
     updatedAt:
       typeof updatedAtCandidate === "string" && updatedAtCandidate.length > 0
         ? updatedAtCandidate
-        : null
+        : null,
+    rateHistory: normalizeRateHistory(
+      source.rateHistory ?? source.rate_history,
+      effectiveMonth,
+      electricityRate
+    )
   };
 }
 
@@ -201,13 +307,18 @@ function readLocalSettings(): AppSettings {
     window.localStorage.getItem("nodeThresholds"),
     DEFAULT_NODE_THRESHOLDS
   );
+  const rawRateHistory = parseJsonArray<MonthlyRate[]>(
+    window.localStorage.getItem("rateHistory"),
+    []
+  );
 
   return normalizeSettings({
     electricityRate: rawRate ? Number(rawRate) : DEFAULT_ELECTRICITY_RATE,
     effectiveMonth: rawMonth || defaultMonth(),
     nodeLabels: rawLabels,
     nodeThresholds: rawThresholds,
-    timezone: rawTimezone || DEFAULT_TIMEZONE
+    timezone: rawTimezone || DEFAULT_TIMEZONE,
+    rateHistory: rawRateHistory
   });
 }
 
@@ -221,42 +332,86 @@ function persistLocalSettings(settings: AppSettings) {
   window.localStorage.setItem("nodeLabels", JSON.stringify(settings.nodeLabels));
   window.localStorage.setItem("nodeThresholds", JSON.stringify(settings.nodeThresholds));
   window.localStorage.setItem("timezone", settings.timezone);
+  window.localStorage.setItem("rateHistory", JSON.stringify(settings.rateHistory));
 }
 
-function getPHTDayKey(dateInput: Date | string) {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: PHT_TIMEZONE,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit"
-  }).formatToParts(new Date(dateInput));
-
-  const byType = parts.reduce<Record<string, string>>((acc, part) => {
-    if (part.type !== "literal") {
-      acc[part.type] = part.value;
-    }
-    return acc;
-  }, {});
-
+export function getPHTDayKey(dateInput: Date | string) {
+  const byType = parsePhtParts(dateInput);
   return `${byType.year}-${byType.month}-${byType.day}`;
 }
 
-function getPHTDayLabel(dayKey: string) {
-  const utcDate = new Date(`${dayKey}T00:00:00Z`);
-  return new Intl.DateTimeFormat("en-PH", {
-    timeZone: PHT_TIMEZONE,
-    month: "short",
-    day: "numeric"
-  }).format(utcDate);
+function getMonthFromDayKey(dayKey: string) {
+  return dayKey.slice(0, 7);
 }
 
-function getLastNDayKeys(n: number) {
+function getMonthDisplayLabel(monthKey: string) {
+  const [yearText, monthText] = monthKey.split("-");
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const date = new Date(Date.UTC(year, month - 1, 1));
+  return new Intl.DateTimeFormat("en-PH", {
+    timeZone: PHT_TIMEZONE,
+    month: "long",
+    year: "numeric"
+  }).format(date);
+}
+
+function getPHTCurrentMonth() {
+  const parts = parsePhtParts(new Date());
+  return `${parts.year}-${parts.month}`;
+}
+
+function getPHTCurrentDay() {
+  const parts = parsePhtParts(new Date());
+  return Number(parts.day);
+}
+
+function getDaysInMonth(monthKey: string) {
+  const [yearText, monthText] = monthKey.split("-");
+  const year = Number(yearText);
+  const month = Number(monthText);
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
+function getMonthDayKeys(monthKey: string) {
+  const days = getDaysInMonth(monthKey);
   const keys: string[] = [];
-  const now = new Date();
-  for (let i = n - 1; i >= 0; i -= 1) {
-    keys.push(getPHTDayKey(new Date(now.getTime() - i * 24 * 60 * 60 * 1000)));
+  for (let day = 1; day <= days; day += 1) {
+    keys.push(`${monthKey}-${String(day).padStart(2, "0")}`);
   }
   return keys;
+}
+
+function getPreviousMonth(monthKey: string) {
+  const [yearText, monthText] = monthKey.split("-");
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const date = new Date(Date.UTC(year, month - 1, 1));
+  date.setUTCMonth(date.getUTCMonth() - 1);
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+function getCoverageEndDay(monthKey: string) {
+  if (monthKey === getPHTCurrentMonth()) {
+    return getPHTCurrentDay();
+  }
+  return getDaysInMonth(monthKey);
+}
+
+export function formatMonthCoverageLabel(monthKey: string) {
+  const [yearText, monthText] = monthKey.split("-");
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const monthName = new Intl.DateTimeFormat("en-PH", {
+    timeZone: PHT_TIMEZONE,
+    month: "long"
+  }).format(new Date(Date.UTC(year, month - 1, 1)));
+  const endDay = getCoverageEndDay(monthKey);
+  return `${monthName} 1-${endDay}, ${year}`;
+}
+
+function getPHTDayLabel(dayKey: string) {
+  return String(Number(dayKey.slice(8, 10)));
 }
 
 function formatPHTTimestamp(timestamp: string) {
@@ -265,6 +420,40 @@ function formatPHTTimestamp(timestamp: string) {
     dateStyle: "medium",
     timeStyle: "short"
   });
+}
+
+function resolveRateForMonth(
+  rateHistory: MonthlyRate[],
+  monthKey: string,
+  fallbackRate: number
+): RateResolution {
+  const sorted = [...rateHistory]
+    .filter((item) => isMonthString(item.month) && Number.isFinite(item.ratePerKwh))
+    .sort((a, b) => a.month.localeCompare(b.month));
+
+  const exact = sorted.find((item) => item.month === monthKey);
+  if (exact) {
+    return {
+      ratePerKwh: exact.ratePerKwh,
+      fromMonth: exact.month,
+      fallback: false
+    };
+  }
+
+  const previous = [...sorted].reverse().find((item) => item.month < monthKey);
+  if (previous) {
+    return {
+      ratePerKwh: previous.ratePerKwh,
+      fromMonth: previous.month,
+      fallback: true
+    };
+  }
+
+  return {
+    ratePerKwh: fallbackRate,
+    fromMonth: null,
+    fallback: false
+  };
 }
 
 async function fetchJson(path: string, init?: RequestInit) {
@@ -312,7 +501,7 @@ export async function saveAppSettings(
   }
 
   try {
-    const response = await fetchJson("/api/settings", {
+    await fetchJson("/api/settings", {
       method: "PUT",
       headers: {
         "Content-Type": "application/json"
@@ -320,9 +509,7 @@ export async function saveAppSettings(
       body: JSON.stringify(payload)
     });
 
-    const settings = normalizeSettings(response?.data ?? response);
-    persistLocalSettings(settings);
-    return settings;
+    return fetchAppSettings();
   } catch (error) {
     const fallback = normalizeSettings({
       ...readLocalSettings(),
@@ -331,6 +518,54 @@ export async function saveAppSettings(
     persistLocalSettings(fallback);
     throw error;
   }
+}
+
+export async function saveMonthlyRate(
+  month: string,
+  ratePerKwh: number,
+  options: { source?: string; sourceUrl?: string; verified?: boolean } = {}
+) {
+  const monthKey = normalizeMonth(month);
+  await fetchJson(`/api/rates/${monthKey}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      ratePerKwh: Number(ratePerKwh),
+      source: options.source || "manual",
+      sourceUrl: options.sourceUrl,
+      verified: options.verified ?? true
+    })
+  });
+
+  return fetchAppSettings();
+}
+
+export async function deleteMonthlyRate(month: string) {
+  const monthKey = normalizeMonth(month);
+  await fetchJson(`/api/rates/${monthKey}`, {
+    method: "DELETE"
+  });
+
+  return fetchAppSettings();
+}
+
+export async function fetchRateDraft(url: string, month?: string): Promise<RateDraftResult> {
+  const payload: Record<string, unknown> = { url };
+  if (month) {
+    payload.month = normalizeMonth(month);
+  }
+
+  const response = await fetchJson("/api/rates/fetch-draft", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+
+  return response?.data as RateDraftResult;
 }
 
 function pickThreeAppliances(applianceIds: string[]) {
@@ -381,43 +616,47 @@ function computeDailyKwh(readings: ApiReading[]) {
   return dailyByAppliance;
 }
 
+function sumByKeys(dailyTotals: Record<string, number>, keys: string[]) {
+  return keys.reduce((sum, key) => sum + (dailyTotals[key] || 0), 0);
+}
+
 function buildNodeSummaries(
   selectedAppliances: string[],
   dailyByAppliance: Map<string, Record<string, number>>,
   latestByAppliance: Map<string, ApiReading>,
-  rate: number,
+  selectedMonthDayKeys: string[],
+  previousMonthDayKeys: string[],
+  ratePerKwh: number,
   labels: string[]
 ): NodeSummary[] {
-  const todayKey = getPHTDayKey(new Date());
-  const yesterdayKey = getPHTDayKey(new Date(Date.now() - 24 * 60 * 60 * 1000));
-
   return selectedAppliances.map((applianceId, index) => {
     const latest = latestByAppliance.get(applianceId);
     const defaultLabel = latest?.applianceName || `Node ${index + 1}`;
     const label = labels[index] || defaultLabel;
     const daily = dailyByAppliance.get(applianceId) || {};
-    const todayKWh = daily[todayKey] || 0;
-    const yesterdayKWh = daily[yesterdayKey] || 0;
+    const periodKWh = sumByKeys(daily, selectedMonthDayKeys);
+    const previousMonthKWh = sumByKeys(daily, previousMonthDayKeys);
 
     return {
       nodeId: index + 1,
       label,
       deviceId: latest?.nodeId || `ESP32-NODE-00${index + 1}`,
       applianceId,
-      todayKWh,
-      yesterdayKWh,
+      periodKWh,
+      previousMonthKWh,
       currentPower: latest?.powerW || 0,
-      estimatedCost: todayKWh * rate
+      estimatedCost: periodKWh * ratePerKwh
     };
   });
 }
 
 function buildChartData(
   selectedAppliances: string[],
-  dailyByAppliance: Map<string, Record<string, number>>
+  dailyByAppliance: Map<string, Record<string, number>>,
+  selectedMonthDayKeys: string[]
 ): DailyData[] {
-  const dayKeys = getLastNDayKeys(7);
-  return dayKeys.map((dayKey) => ({
+  return selectedMonthDayKeys.map((dayKey) => ({
+    dayKey,
     date: getPHTDayLabel(dayKey),
     node1: Number(((dailyByAppliance.get(selectedAppliances[0]) || {})[dayKey] || 0).toFixed(4)),
     node2: Number(((dailyByAppliance.get(selectedAppliances[1]) || {})[dayKey] || 0).toFixed(4)),
@@ -461,10 +700,12 @@ export async function fetchDashboardData(
   options: FetchDashboardOptions = {}
 ): Promise<DashboardData> {
   const settings = options.settings || (await fetchAppSettings());
-  const rate =
-    typeof options.rate === "number" && Number.isFinite(options.rate) && options.rate >= 0
-      ? options.rate
-      : settings.electricityRate;
+  const selectedMonth = normalizeMonth(options.selectedMonth || settings.effectiveMonth);
+  const resolvedRate = resolveRateForMonth(
+    settings.rateHistory,
+    selectedMonth,
+    settings.electricityRate
+  );
 
   const readingsRes = await fetchJson("/api/readings?limit=5000");
   const readings: ApiReading[] = Array.isArray(readingsRes?.data) ? readingsRes.data : [];
@@ -479,41 +720,66 @@ export async function fetchDashboardData(
 
   const selectedAppliances = pickThreeAppliances([...latestByAppliance.keys()]);
   const dailyByAppliance = computeDailyKwh(readings);
+
+  const selectedMonthDayKeys = getMonthDayKeys(selectedMonth);
+  const previousMonthKey = getPreviousMonth(selectedMonth);
+  const previousMonthDayKeys = getMonthDayKeys(previousMonthKey);
+
   const nodeSummaries = buildNodeSummaries(
     selectedAppliances,
     dailyByAppliance,
     latestByAppliance,
-    rate,
+    selectedMonthDayKeys,
+    previousMonthDayKeys,
+    resolvedRate.ratePerKwh,
     settings.nodeLabels
   );
-  const chartData = buildChartData(selectedAppliances, dailyByAppliance);
+  const chartData = buildChartData(selectedAppliances, dailyByAppliance, selectedMonthDayKeys);
 
   let alerts: Alert[] = [];
   try {
-    const alertsRes = await fetchJson("/api/alerts?limit=50");
+    const alertsRes = await fetchJson("/api/alerts?limit=200");
     const alertRows: ApiReading[] = Array.isArray(alertsRes?.data) ? alertsRes.data : [];
+    const monthAlerts = alertRows.filter((row) => getMonthFromDayKey(getPHTDayKey(row.timestamp)) === selectedMonth);
     alerts = mapAlerts(
-      alertRows,
+      monthAlerts,
       selectedAppliances,
       settings.nodeLabels,
       settings.nodeThresholds
     );
   } catch (_error) {
-    const fallbackRows = readings.filter((reading) => reading.abnormal || reading.powerW > reading.thresholdW);
+    const fallbackRows = readings
+      .filter((reading) => reading.abnormal || reading.powerW > reading.thresholdW)
+      .filter((reading) => getMonthFromDayKey(getPHTDayKey(reading.timestamp)) === selectedMonth);
     alerts = mapAlerts(
-      fallbackRows.slice(0, 50),
+      fallbackRows,
       selectedAppliances,
       settings.nodeLabels,
       settings.nodeThresholds
     );
   }
 
+  const selectedMonthTotalKWh = nodeSummaries.reduce((sum, node) => sum + node.periodKWh, 0);
+  const previousMonthTotalKWh = nodeSummaries.reduce((sum, node) => sum + node.previousMonthKWh, 0);
+  const selectedMonthTotalCost = selectedMonthTotalKWh * resolvedRate.ratePerKwh;
+
   return {
     chartData,
     nodeSummaries,
     alerts,
-    readings
+    readings,
+    selectedMonth,
+    selectedMonthCoverageLabel: formatMonthCoverageLabel(selectedMonth),
+    selectedMonthTotalKWh,
+    selectedMonthTotalCost,
+    previousMonthKey,
+    previousMonthTotalKWh,
+    resolvedRate
   };
+}
+
+export function getMonthLabel(monthKey: string) {
+  return getMonthDisplayLabel(normalizeMonth(monthKey));
 }
 
 export function getPHTTime() {

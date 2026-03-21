@@ -9,6 +9,13 @@ Node.js/Express starter backend for:
 ## Endpoints
 
 - `GET /health`
+- `GET /health/db`
+- `GET /api/settings`
+- `PUT /api/settings`
+- `GET /api/rates?limit=240`
+- `PUT /api/rates/:month` (`YYYY-MM`)
+- `DELETE /api/rates/:month` (`YYYY-MM`)
+- `POST /api/rates/fetch-draft`
 - `POST /api/readings`
 - `GET /api/readings?limit=120&applianceId=appliance-01`
 - `GET /api/summary?windowMinutes=60`

@@ -6,6 +6,10 @@ function isNumber(value) {
   return typeof value === "number" && Number.isFinite(value);
 }
 
+function isMonthString(value) {
+  return typeof value === "string" && /^\d{4}-(0[1-9]|1[0-2])$/.test(value);
+}
+
 function validateReadingPayload(body) {
   const errors = [];
 
@@ -79,10 +83,7 @@ function validateSettingsPayload(body) {
   }
 
   if (body.effectiveMonth !== undefined) {
-    const monthOk =
-      typeof body.effectiveMonth === "string" &&
-      /^\d{4}-(0[1-9]|1[0-2])$/.test(body.effectiveMonth);
-    if (!monthOk) {
+    if (!isMonthString(body.effectiveMonth)) {
       errors.push("effectiveMonth must be in YYYY-MM format");
     }
   }
@@ -119,6 +120,82 @@ function validateSettingsPayload(body) {
   };
 }
 
+function validateRateUpsertPayload(body) {
+  const errors = [];
+
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return {
+      valid: false,
+      errors: ["payload must be a JSON object"]
+    };
+  }
+
+  if (!isNumber(body.ratePerKwh) || body.ratePerKwh < 0) {
+    errors.push("ratePerKwh is required and must be a finite number >= 0");
+  }
+
+  if (body.source !== undefined && !isString(body.source)) {
+    errors.push("source must be a non-empty string when provided");
+  }
+
+  if (body.sourceUrl !== undefined) {
+    if (!isString(body.sourceUrl)) {
+      errors.push("sourceUrl must be a non-empty string when provided");
+    } else {
+      try {
+        const parsed = new URL(body.sourceUrl);
+        if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+          errors.push("sourceUrl must use http or https");
+        }
+      } catch (_error) {
+        errors.push("sourceUrl must be a valid URL");
+      }
+    }
+  }
+
+  if (body.verified !== undefined && typeof body.verified !== "boolean") {
+    errors.push("verified must be a boolean when provided");
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors
+  };
+}
+
+function validateRateDraftPayload(body) {
+  const errors = [];
+
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return {
+      valid: false,
+      errors: ["payload must be a JSON object"]
+    };
+  }
+
+  if (!isString(body.url)) {
+    errors.push("url is required and must be a non-empty string");
+  } else {
+    try {
+      const parsed = new URL(body.url);
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+        errors.push("url must use http or https");
+      }
+    } catch (_error) {
+      errors.push("url must be a valid URL");
+    }
+  }
+
+  if (body.month !== undefined && !isMonthString(body.month)) {
+    errors.push("month must be in YYYY-MM format when provided");
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors
+  };
+}
+
 function normalizeReading(body) {
   const nowIso = new Date().toISOString();
   const ts =
@@ -147,5 +224,8 @@ function normalizeReading(body) {
 module.exports = {
   validateReadingPayload,
   validateSettingsPayload,
+  validateRateUpsertPayload,
+  validateRateDraftPayload,
+  isMonthString,
   normalizeReading
 };

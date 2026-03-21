@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
+  Calendar,
   Minus,
   RefreshCw,
   TrendingDown,
@@ -22,11 +23,16 @@ import {
 } from "recharts";
 import {
   API_BASE,
+  defaultMonth,
   fetchAppSettings,
   fetchDashboardData,
-  getPHTTime
+  getMonthLabel,
+  getPHTTime,
+  type Alert,
+  type DailyData,
+  type NodeSummary,
+  type RateResolution
 } from "../utils/mockData";
-import type { Alert, DailyData, NodeSummary } from "../utils/mockData";
 
 type LegendPayloadItem = {
   color?: string;
@@ -68,24 +74,49 @@ export default function Dashboard() {
   const [lastUpdated, setLastUpdated] = useState<string>(getPHTTime());
   const [isConnected, setIsConnected] = useState<boolean>(true);
   const [refreshInterval, setRefreshInterval] = useState<number>(30);
+  const [selectedMonth, setSelectedMonth] = useState<string>(defaultMonth());
   const [chartData, setChartData] = useState<DailyData[]>([]);
   const [nodeSummaries, setNodeSummaries] = useState<NodeSummary[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
-  const [rate, setRate] = useState<number>(11.5);
   const [errorMessage, setErrorMessage] = useState<string>("");
+  const [coverageLabel, setCoverageLabel] = useState<string>("");
+  const [selectedMonthTotalKWh, setSelectedMonthTotalKWh] = useState<number>(0);
+  const [selectedMonthTotalCost, setSelectedMonthTotalCost] = useState<number>(0);
+  const [previousMonthTotalKWh, setPreviousMonthTotalKWh] = useState<number>(0);
+  const [previousMonthKey, setPreviousMonthKey] = useState<string>("");
+  const [resolvedRate, setResolvedRate] = useState<RateResolution>({
+    ratePerKwh: 11.5,
+    fromMonth: null,
+    fallback: false
+  });
+
+  useEffect(() => {
+    fetchAppSettings()
+      .then((settings) => {
+        setSelectedMonth(settings.effectiveMonth || defaultMonth());
+      })
+      .catch(() => {
+        setSelectedMonth(defaultMonth());
+      });
+  }, []);
 
   const loadData = useCallback(async () => {
     try {
       const settings = await fetchAppSettings();
-      setRate(settings.electricityRate);
-
       const dashboardData = await fetchDashboardData({
         settings,
-        rate: settings.electricityRate
+        selectedMonth
       });
+
       setChartData(dashboardData.chartData);
       setNodeSummaries(dashboardData.nodeSummaries);
       setAlerts(dashboardData.alerts);
+      setCoverageLabel(dashboardData.selectedMonthCoverageLabel);
+      setSelectedMonthTotalKWh(dashboardData.selectedMonthTotalKWh);
+      setSelectedMonthTotalCost(dashboardData.selectedMonthTotalCost);
+      setPreviousMonthTotalKWh(dashboardData.previousMonthTotalKWh);
+      setPreviousMonthKey(dashboardData.previousMonthKey);
+      setResolvedRate(dashboardData.resolvedRate);
       setLastUpdated(getPHTTime());
       setIsConnected(true);
       setErrorMessage("");
@@ -93,7 +124,7 @@ export default function Dashboard() {
       setIsConnected(false);
       setErrorMessage(error instanceof Error ? error.message : "Unable to fetch data");
     }
-  }, []);
+  }, [selectedMonth]);
 
   useEffect(() => {
     loadData();
@@ -104,36 +135,43 @@ export default function Dashboard() {
     return () => window.clearInterval(intervalId);
   }, [loadData, refreshInterval]);
 
-  const todayTotal = nodeSummaries.reduce((sum, node) => sum + node.todayKWh, 0);
-  const yesterdayTotal = nodeSummaries.reduce((sum, node) => sum + node.yesterdayKWh, 0);
-  const todayCostTotal = todayTotal * rate;
-  const chartDataWithTotals = chartData.map((row) => ({
-    ...row,
-    total: Number((row.node1 + row.node2 + row.node3).toFixed(4))
-  }));
+  const chartDataWithTotals = useMemo(
+    () =>
+      chartData.map((row) => ({
+        ...row,
+        total: Number((row.node1 + row.node2 + row.node3).toFixed(4))
+      })),
+    [chartData]
+  );
+
   const hasChartData = chartDataWithTotals.some(
     (row) => row.node1 > 0 || row.node2 > 0 || row.node3 > 0 || row.total > 0
   );
-  const difference = todayTotal - yesterdayTotal;
-  const percentChange = yesterdayTotal > 0 ? (difference / yesterdayTotal) * 100 : 0;
+
+  const difference = selectedMonthTotalKWh - previousMonthTotalKWh;
+  const percentChange = previousMonthTotalKWh > 0 ? (difference / previousMonthTotalKWh) * 100 : 0;
 
   let insightIcon = Minus;
   let insightColor = "text-gray-600";
   let insightText = "";
 
-  if (difference > 0.0001 && yesterdayTotal > 0) {
+  if (difference > 0.0001 && previousMonthTotalKWh > 0) {
     insightIcon = TrendingUp;
     insightColor = "text-red-600";
-    insightText = `You have consumed ${Math.abs(difference).toFixed(3)} kWh (${Math.abs(percentChange).toFixed(1)}%) more today compared to yesterday.`;
-  } else if (difference < -0.0001 && yesterdayTotal > 0) {
+    insightText = `You consumed ${Math.abs(difference).toFixed(3)} kWh (${Math.abs(percentChange).toFixed(1)}%) more than ${getMonthLabel(previousMonthKey)}.`;
+  } else if (difference < -0.0001 && previousMonthTotalKWh > 0) {
     insightIcon = TrendingDown;
     insightColor = "text-green-600";
-    insightText = `You have consumed ${Math.abs(difference).toFixed(3)} kWh (${Math.abs(percentChange).toFixed(1)}%) less today compared to yesterday.`;
-  } else if (yesterdayTotal === 0 && todayTotal > 0) {
-    insightText = `You have consumed ${todayTotal.toFixed(3)} kWh today. No baseline data for yesterday yet.`;
+    insightText = `You consumed ${Math.abs(difference).toFixed(3)} kWh (${Math.abs(percentChange).toFixed(1)}%) less than ${getMonthLabel(previousMonthKey)}.`;
+  } else if (previousMonthTotalKWh === 0 && selectedMonthTotalKWh > 0) {
+    insightText = `You consumed ${selectedMonthTotalKWh.toFixed(3)} kWh for ${getMonthLabel(selectedMonth)}. No complete baseline from ${getMonthLabel(previousMonthKey)}.`;
   } else {
-    insightText = "Your consumption today is about the same as yesterday.";
+    insightText = `Consumption for ${getMonthLabel(selectedMonth)} is about the same as ${getMonthLabel(previousMonthKey)}.`;
   }
+
+  const rateCaption = resolvedRate.fallback && resolvedRate.fromMonth
+    ? `Using fallback rate from ${getMonthLabel(resolvedRate.fromMonth)}: PHP ${resolvedRate.ratePerKwh.toFixed(2)}/kWh`
+    : `Rate for ${getMonthLabel(selectedMonth)}: PHP ${resolvedRate.ratePerKwh.toFixed(2)}/kWh`;
 
   const InsightIcon = insightIcon;
 
@@ -167,9 +205,23 @@ export default function Dashboard() {
       </div>
 
       <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 p-6">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+        <div className="flex flex-col lg:flex-row items-start lg:items-center gap-4">
           <div className="flex flex-wrap items-center gap-3 flex-1 min-w-0">
-            <label htmlFor="refresh-interval" className="text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">
+            <label htmlFor="month-selector" className="text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">
+              Billing Month:
+            </label>
+            <div className="relative w-48">
+              <input
+                id="month-selector"
+                type="month"
+                value={selectedMonth}
+                onChange={(event) => setSelectedMonth(event.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-950 dark:text-gray-100"
+              />
+              <Calendar className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400 pointer-events-none" />
+            </div>
+
+            <label htmlFor="refresh-interval" className="text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap lg:ml-3">
               Refresh Interval:
             </label>
             <div className="relative w-28">
@@ -184,6 +236,7 @@ export default function Dashboard() {
               />
               <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-500 dark:text-gray-400">sec</span>
             </div>
+
             <button
               onClick={loadData}
               className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
@@ -193,10 +246,18 @@ export default function Dashboard() {
             </button>
           </div>
 
-          <div className="w-full sm:w-auto text-sm text-gray-600 dark:text-gray-400 break-all">
+          <div className="w-full lg:w-auto text-sm text-gray-600 dark:text-gray-400 break-all">
             Data Source: {API_BASE}
           </div>
         </div>
+
+        <div className="mt-4 space-y-1">
+          <p className="text-sm text-gray-700 dark:text-gray-300">
+            Viewing: <span className="font-medium">{coverageLabel || getMonthLabel(selectedMonth)}</span>
+          </p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">{rateCaption}</p>
+        </div>
+
         {!isConnected && (
           <p className="mt-3 text-sm text-red-600">
             API error: {errorMessage}
@@ -208,8 +269,8 @@ export default function Dashboard() {
         <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600 dark:text-gray-400">Total Today</p>
-              <p className="text-3xl font-semibold text-gray-900 dark:text-gray-100 mt-1">{todayTotal.toFixed(3)}</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">Total kWh ({getMonthLabel(selectedMonth)})</p>
+              <p className="text-3xl font-semibold text-gray-900 dark:text-gray-100 mt-1">{selectedMonthTotalKWh.toFixed(3)}</p>
               <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">kWh</p>
             </div>
             <div className="w-12 h-12 bg-blue-100 dark:bg-blue-950 rounded-lg flex items-center justify-center">
@@ -221,8 +282,8 @@ export default function Dashboard() {
         <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600 dark:text-gray-400">Yesterday</p>
-              <p className="text-3xl font-semibold text-gray-900 dark:text-gray-100 mt-1">{yesterdayTotal.toFixed(3)}</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">Previous Month ({getMonthLabel(previousMonthKey)})</p>
+              <p className="text-3xl font-semibold text-gray-900 dark:text-gray-100 mt-1">{previousMonthTotalKWh.toFixed(3)}</p>
               <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">kWh</p>
             </div>
             <div className="w-12 h-12 bg-gray-100 dark:bg-gray-800 rounded-lg flex items-center justify-center">
@@ -234,12 +295,12 @@ export default function Dashboard() {
         <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600 dark:text-gray-400">Est. Cost Today</p>
-              <p className="text-3xl font-semibold text-gray-900 dark:text-gray-100 mt-1">₱{todayCostTotal.toFixed(2)}</p>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">@ ₱{rate}/kWh</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">Total Cost ({getMonthLabel(selectedMonth)})</p>
+              <p className="text-3xl font-semibold text-gray-900 dark:text-gray-100 mt-1">PHP {selectedMonthTotalCost.toFixed(2)}</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Based on selected month rate</p>
             </div>
             <div className="w-12 h-12 bg-green-100 dark:bg-green-950 rounded-lg flex items-center justify-center">
-              <span className="text-2xl">₱</span>
+              <span className="text-lg font-semibold text-green-700 dark:text-green-400">PHP</span>
             </div>
           </div>
         </div>
@@ -262,7 +323,7 @@ export default function Dashboard() {
       </div>
 
       <div>
-        <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-4">Individual Nodes</h2>
+        <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-4">Individual Nodes ({getMonthLabel(selectedMonth)})</h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {nodeSummaries.map((node, index) => (
             <div key={node.applianceId} className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 p-6">
@@ -282,8 +343,8 @@ export default function Dashboard() {
 
               <div className="space-y-3">
                 <div>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">Today's Consumption</p>
-                  <p className="text-2xl font-semibold text-gray-900 dark:text-gray-100">{node.todayKWh.toFixed(3)} kWh</p>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">Monthly Consumption</p>
+                  <p className="text-2xl font-semibold text-gray-900 dark:text-gray-100">{node.periodKWh.toFixed(3)} kWh</p>
                 </div>
 
                 <div className="flex items-center justify-between text-sm">
@@ -292,8 +353,8 @@ export default function Dashboard() {
                 </div>
 
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-gray-600 dark:text-gray-400">Est. Cost Today</span>
-                  <span className="font-medium text-gray-900 dark:text-gray-100">₱{node.estimatedCost.toFixed(2)}</span>
+                  <span className="text-gray-600 dark:text-gray-400">Est. Cost This Month</span>
+                  <span className="font-medium text-gray-900 dark:text-gray-100">PHP {node.estimatedCost.toFixed(2)}</span>
                 </div>
 
                 <div className="pt-3 border-t border-gray-200 dark:border-gray-800">
@@ -306,8 +367,8 @@ export default function Dashboard() {
       </div>
 
       <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 p-6">
-        <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-4">7-Day Energy Profile (kWh)</h2>
-        <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">Grouped daily node usage with total household trend line</p>
+        <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-4">Monthly Energy Profile (kWh)</h2>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">Daily node usage for {getMonthLabel(selectedMonth)} with total trend line</p>
 
         <div className="h-80 lg:h-96">
           {hasChartData ? (
@@ -328,7 +389,7 @@ export default function Dashboard() {
                 <Tooltip
                   cursor={{ fill: "rgba(148, 163, 184, 0.14)" }}
                   contentStyle={{ backgroundColor: "#fff", border: "1px solid #e5e7eb", borderRadius: "10px" }}
-                  labelFormatter={(label: string | number) => `Date: ${label}`}
+                  labelFormatter={(label: string | number) => `Day ${label}`}
                   formatter={(value: number | string, name: string) => [
                     `${Number(value).toFixed(3)} kWh`,
                     name
@@ -344,21 +405,21 @@ export default function Dashboard() {
                   name={`Node 1 (${nodeSummaries[0]?.label || "Node 1"})`}
                   fill="#7c3aed"
                   radius={[4, 4, 0, 0]}
-                  barSize={20}
+                  barSize={14}
                 />
                 <Bar
                   dataKey="node2"
                   name={`Node 2 (${nodeSummaries[1]?.label || "Node 2"})`}
                   fill="#ea580c"
                   radius={[4, 4, 0, 0]}
-                  barSize={20}
+                  barSize={14}
                 />
                 <Bar
                   dataKey="node3"
                   name={`Node 3 (${nodeSummaries[2]?.label || "Node 3"})`}
                   fill="#0891b2"
                   radius={[4, 4, 0, 0]}
-                  barSize={20}
+                  barSize={14}
                 />
                 <Line
                   key="total-line"
@@ -367,14 +428,14 @@ export default function Dashboard() {
                   stroke="#facc15"
                   strokeWidth={3}
                   name="Total Daily kWh"
-                  dot={{ r: 3, fill: "#facc15", stroke: "#fef3c7", strokeWidth: 1 }}
-                  activeDot={{ r: 5, fill: "#facc15", stroke: "#fef3c7", strokeWidth: 2 }}
+                  dot={{ r: 2.5, fill: "#facc15", stroke: "#fef3c7", strokeWidth: 1 }}
+                  activeDot={{ r: 4.5, fill: "#facc15", stroke: "#fef3c7", strokeWidth: 2 }}
                 />
               </ComposedChart>
             </ResponsiveContainer>
           ) : (
             <div className="h-full flex items-center justify-center rounded-lg border border-dashed border-gray-300 dark:border-gray-700 text-sm text-gray-600 dark:text-gray-400">
-              No readings yet for the past 7 days. Data will appear after ingest starts.
+              No readings found for {getMonthLabel(selectedMonth)}. Data will appear after ingest starts.
             </div>
           )}
         </div>
@@ -384,7 +445,7 @@ export default function Dashboard() {
         <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 p-6">
           <div className="flex items-center gap-2 mb-4">
             <AlertTriangle className="w-5 h-5 text-orange-600" />
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Recent Alerts</h2>
+            <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Alerts ({getMonthLabel(selectedMonth)})</h2>
           </div>
 
           <div className="space-y-3">

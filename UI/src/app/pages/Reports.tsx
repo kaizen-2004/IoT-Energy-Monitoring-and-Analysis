@@ -1,9 +1,17 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, Calendar, Download, FileText, Image as ImageIcon, RefreshCw, Table } from "lucide-react";
 import { toast } from "sonner";
 import jsPDF from "jspdf";
-import { API_BASE, fetchAppSettings, fetchDashboardData } from "../utils/mockData";
-import type { Alert, DailyData, NodeSummary } from "../utils/mockData";
+import {
+  API_BASE,
+  defaultMonth,
+  fetchAppSettings,
+  fetchDashboardData,
+  getMonthLabel,
+  type Alert,
+  type DailyData,
+  type NodeSummary
+} from "../utils/mockData";
 import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 type LegendPayloadItem = {
@@ -40,12 +48,6 @@ function renderCompactLegend(props: { payload?: LegendPayloadItem[] }) {
       ))}
     </div>
   );
-}
-
-function isoDate(daysFromToday: number) {
-  const date = new Date();
-  date.setDate(date.getDate() + daysFromToday);
-  return date.toISOString().slice(0, 10);
 }
 
 function drawSectionHeader(pdf: jsPDF, title: string, x: number, y: number, width: number) {
@@ -192,8 +194,8 @@ function drawTrendChartPdf(
 }
 
 export default function Reports() {
-  const [startDate, setStartDate] = useState<string>(isoDate(-6));
-  const [endDate, setEndDate] = useState<string>(isoDate(0));
+  const [selectedMonth, setSelectedMonth] = useState<string>(defaultMonth());
+  const [coverageLabel, setCoverageLabel] = useState<string>("");
   const [includeCharts, setIncludeCharts] = useState<boolean>(true);
   const [includeNodeTable, setIncludeNodeTable] = useState<boolean>(true);
   const [includeAlerts, setIncludeAlerts] = useState<boolean>(true);
@@ -204,40 +206,58 @@ export default function Reports() {
   const [chartData, setChartData] = useState<DailyData[]>([]);
   const [nodeSummaries, setNodeSummaries] = useState<NodeSummary[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [totalKWh, setTotalKWh] = useState<number>(0);
+  const [totalCost, setTotalCost] = useState<number>(0);
+
+  useEffect(() => {
+    fetchAppSettings()
+      .then((settings) => {
+        setSelectedMonth(settings.effectiveMonth || defaultMonth());
+      })
+      .catch(() => {
+        setSelectedMonth(defaultMonth());
+      });
+  }, []);
 
   const loadData = useCallback(async () => {
     try {
       setIsLoading(true);
       const settings = await fetchAppSettings();
-      const currentRate =
-        Number.isFinite(settings.electricityRate) && settings.electricityRate >= 0
-          ? settings.electricityRate
-          : 11.5;
-      setRate(currentRate);
-
       const dashboardData = await fetchDashboardData({
         settings,
-        rate: currentRate
+        selectedMonth
       });
+
+      setRate(dashboardData.resolvedRate.ratePerKwh);
       setChartData(dashboardData.chartData);
       setNodeSummaries(dashboardData.nodeSummaries);
       setAlerts(dashboardData.alerts);
+      setCoverageLabel(dashboardData.selectedMonthCoverageLabel);
+      setTotalKWh(dashboardData.selectedMonthTotalKWh);
+      setTotalCost(dashboardData.selectedMonthTotalCost);
       setErrorMessage("");
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Unable to fetch report data");
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [selectedMonth]);
 
   useEffect(() => {
     loadData();
   }, [loadData]);
 
-  const totalKWh = nodeSummaries.reduce((sum, node) => sum + node.todayKWh, 0);
-  const totalCost = totalKWh * rate;
   const selectedSectionCount =
     (includeCharts ? 1 : 0) + (includeNodeTable ? 1 : 0) + (includeAlerts ? 1 : 0);
+
+  const chartDataWithTotals = useMemo(
+    () =>
+      chartData.map((row) => ({
+        ...row,
+        total: Number((row.node1 + row.node2 + row.node3).toFixed(4))
+      })),
+    [chartData]
+  );
 
   const handleGeneratePDF = async () => {
     if (isLoading && nodeSummaries.length === 0) {
@@ -269,8 +289,8 @@ export default function Reports() {
       const generatedDate = new Date().toLocaleString("en-PH", { timeZone: "Asia/Manila" });
       pdf.setFontSize(8.5);
       pdf.text(`Generated: ${generatedDate}`, pageWidth - marginX, 14, { align: "right" });
-      pdf.text(`Period: ${startDate} to ${endDate}`, pageWidth - marginX, 20, { align: "right" });
-      pdf.text(`Rate: PHP ${rate.toFixed(2)} per kWh`, pageWidth - marginX, 26, { align: "right" });
+      pdf.text(`Month: ${getMonthLabel(selectedMonth)}`, pageWidth - marginX, 20, { align: "right" });
+      pdf.text(`Coverage: ${coverageLabel}`, pageWidth - marginX, 26, { align: "right" });
 
       yPos = 44;
       drawSectionHeader(pdf, "Summary Highlights", marginX, yPos, contentWidth);
@@ -278,14 +298,14 @@ export default function Reports() {
 
       const cardGap = 4;
       const cardWidth = (contentWidth - cardGap * 2) / 3;
-      drawMetricCard(pdf, marginX, yPos, cardWidth, "Total Today", `${totalKWh.toFixed(3)} kWh`, [37, 99, 235]);
+      drawMetricCard(pdf, marginX, yPos, cardWidth, "Total kWh", `${totalKWh.toFixed(3)} kWh`, [37, 99, 235]);
       drawMetricCard(pdf, marginX + cardWidth + cardGap, yPos, cardWidth, "Estimated Cost", `PHP ${totalCost.toFixed(2)}`, [5, 150, 105]);
       drawMetricCard(pdf, marginX + cardWidth * 2 + cardGap * 2, yPos, cardWidth, "Active Nodes", `${nodeSummaries.length}`, [124, 58, 237]);
 
       yPos += 33;
       pdf.setTextColor(31, 41, 55);
       pdf.setFontSize(10);
-      pdf.text("This report summarizes latest node-level readings, estimated daily consumption, and threshold alerts.", marginX, yPos);
+      pdf.text(`Rate Applied: PHP ${rate.toFixed(4)} per kWh`, marginX, yPos);
 
       if (includeNodeTable) {
         yPos += 10;
@@ -294,7 +314,7 @@ export default function Reports() {
         yPos += 10;
         pdf.setFontSize(10);
 
-        const headers = ["Node", "Appliance", "kWh Today", "Current Power", "Est. Cost", "Device ID"];
+        const headers = ["Node", "Appliance", "kWh (Month)", "Current Power", "Est. Cost", "Device ID"];
         const colWidths = [0.12, 0.36, 0.13, 0.15, 0.14, 0.1].map((ratio) =>
           Number((contentWidth * ratio).toFixed(2))
         );
@@ -325,7 +345,7 @@ export default function Reports() {
           const rowData = [
             `Node ${node.nodeId}`,
             node.label,
-            `${node.todayKWh.toFixed(3)}`,
+            `${node.periodKWh.toFixed(3)}`,
             `${Math.round(node.currentPower)} W`,
             `PHP ${node.estimatedCost.toFixed(2)}`,
             node.deviceId
@@ -356,7 +376,7 @@ export default function Reports() {
           yPos += 10;
         }
 
-        drawSectionHeader(pdf, "7-Day Energy Consumption Trend", marginX, yPos, contentWidth);
+        drawSectionHeader(pdf, "Monthly Energy Consumption Trend", marginX, yPos, contentWidth);
         yPos += 10;
         const availableHeight = pageHeight - 18 - yPos;
         const chartHeight = Math.max(minChartHeight, Math.min(maxChartHeight, availableHeight));
@@ -414,7 +434,7 @@ export default function Reports() {
         });
       }
 
-      pdf.save(`energy-report-${startDate}-to-${endDate}.pdf`);
+      pdf.save(`energy-report-${selectedMonth}.pdf`);
       toast.success("PDF report generated");
     } catch (error) {
       console.error("Error generating PDF:", error);
@@ -424,12 +444,12 @@ export default function Reports() {
       setIsGenerating(false);
     }
   };
-  
+
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-semibold text-gray-900 dark:text-gray-100">Reports & Export</h1>
-        <p className="text-gray-600 dark:text-gray-400 mt-1">Generate and export energy consumption reports</p>
+        <p className="text-gray-600 dark:text-gray-400 mt-1">Generate and export monthly energy consumption reports</p>
       </div>
 
       <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 p-6">
@@ -454,45 +474,25 @@ export default function Reports() {
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
               <div className="flex items-center gap-2">
                 <Calendar className="w-4 h-4" />
-                Date Range
+                Billing Month
               </div>
             </label>
-            
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label htmlFor="start-date" className="block text-sm text-gray-600 dark:text-gray-400 mb-2">
-                  Start Date
-                </label>
-                <input
-                  id="start-date"
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-950 dark:text-gray-100"
-                />
-              </div>
-              
-              <div>
-                <label htmlFor="end-date" className="block text-sm text-gray-600 dark:text-gray-400 mb-2">
-                  End Date
-                </label>
-                <input
-                  id="end-date"
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-950 dark:text-gray-100"
-                />
-              </div>
-            </div>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">Data visualization always uses latest 7-day backend data.</p>
+
+            <input
+              id="report-month"
+              type="month"
+              value={selectedMonth}
+              onChange={(e) => setSelectedMonth(e.target.value)}
+              className="w-full sm:w-72 px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-950 dark:text-gray-100"
+            />
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">Coverage: {coverageLabel || getMonthLabel(selectedMonth)}</p>
           </div>
 
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
               Include in Report
             </label>
-            
+
             <div className="space-y-3">
               <label className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
                 <input
@@ -504,10 +504,10 @@ export default function Reports() {
                 <ImageIcon className="w-5 h-5 text-gray-600 dark:text-gray-400" />
                 <div className="flex-1">
                   <div className="font-medium text-gray-900 dark:text-gray-100">Trend Charts</div>
-                  <div className="text-sm text-gray-600 dark:text-gray-400">Include 7-day energy consumption trend chart</div>
+                  <div className="text-sm text-gray-600 dark:text-gray-400">Include monthly energy consumption trend chart</div>
                 </div>
               </label>
-              
+
               <label className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
                 <input
                   type="checkbox"
@@ -521,7 +521,7 @@ export default function Reports() {
                   <div className="text-sm text-gray-600 dark:text-gray-400">Include detailed table of all nodes</div>
                 </div>
               </label>
-              
+
               <label className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
                 <input
                   type="checkbox"
@@ -545,120 +545,62 @@ export default function Reports() {
               className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
             >
               <Download className="w-5 h-5" />
-              {isGenerating ? 'Generating PDF...' : 'Generate PDF Report'}
+              {isGenerating ? "Generating PDF..." : "Generate PDF Report"}
             </button>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             <div className="p-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
-              <p className="text-sm text-gray-600 dark:text-gray-400">Date Range</p>
-              <p className="text-base font-semibold text-gray-900 dark:text-gray-100 mt-1">{startDate} to {endDate}</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">Selected Month</p>
+              <p className="text-base font-semibold text-gray-900 dark:text-gray-100 mt-1">{getMonthLabel(selectedMonth)}</p>
             </div>
             <div className="p-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
               <p className="text-sm text-gray-600 dark:text-gray-400">Sections Included</p>
               <p className="text-base font-semibold text-gray-900 dark:text-gray-100 mt-1">{selectedSectionCount} / 3 enabled</p>
             </div>
             <div className="p-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
-              <p className="text-sm text-gray-600 dark:text-gray-400">Current Rate</p>
-              <p className="text-base font-semibold text-gray-900 dark:text-gray-100 mt-1">₱{rate.toFixed(2)} per kWh</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">Applied Rate</p>
+              <p className="text-base font-semibold text-gray-900 dark:text-gray-100 mt-1">PHP {rate.toFixed(4)} per kWh</p>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 p-6">
-        <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-6">Report Preview</h2>
-
-        <div className="space-y-6">
-          <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
-            <h3 className="font-medium text-gray-900 dark:text-gray-100 mb-3">Summary</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
-              <div>
-                <p className="text-gray-600 dark:text-gray-400">Total Consumption</p>
-                <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">{totalKWh.toFixed(3)} kWh</p>
-              </div>
-              <div>
-                <p className="text-gray-600 dark:text-gray-400">Estimated Cost</p>
-                <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">₱{totalCost.toFixed(2)}</p>
-              </div>
-              <div>
-                <p className="text-gray-600 dark:text-gray-400">Rate</p>
-                <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">₱{rate.toFixed(2)}/kWh</p>
-              </div>
+      {!isLoading && (
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 p-6">
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-4">Monthly Snapshot</h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="p-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+              <p className="text-sm text-gray-600 dark:text-gray-400">Total kWh</p>
+              <p className="text-2xl font-semibold text-gray-900 dark:text-gray-100 mt-1">{totalKWh.toFixed(3)}</p>
+            </div>
+            <div className="p-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+              <p className="text-sm text-gray-600 dark:text-gray-400">Estimated Cost</p>
+              <p className="text-2xl font-semibold text-gray-900 dark:text-gray-100 mt-1">PHP {totalCost.toFixed(2)}</p>
+            </div>
+            <div className="p-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+              <p className="text-sm text-gray-600 dark:text-gray-400">Coverage</p>
+              <p className="text-base font-semibold text-gray-900 dark:text-gray-100 mt-1">{coverageLabel || getMonthLabel(selectedMonth)}</p>
             </div>
           </div>
 
-          {includeCharts && (
-            <div>
-              <h3 className="font-medium text-gray-900 dark:text-gray-100 mb-3">7-Day Trend Chart</h3>
-              <div id="report-chart" className="bg-white dark:bg-gray-900 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
-                <div className="h-64">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={chartData}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="date" tick={{ fontSize: 12 }} />
-                      <YAxis label={{ value: 'kWh', angle: -90, position: 'insideLeft' }} tick={{ fontSize: 12 }} />
-                      <Tooltip contentStyle={{ backgroundColor: '#fff', border: '1px solid #e5e7eb' }} />
-                      <Legend verticalAlign="top" height={54} content={renderCompactLegend} />
-                      <Line type="monotone" dataKey="node1" stroke="#9333ea" strokeWidth={2} name={`Node 1 (${nodeSummaries[0]?.label || "Node 1"})`} dot={{ r: 4 }} />
-                      <Line type="monotone" dataKey="node2" stroke="#f97316" strokeWidth={2} name={`Node 2 (${nodeSummaries[1]?.label || "Node 2"})`} dot={{ r: 4 }} />
-                      <Line type="monotone" dataKey="node3" stroke="#06b6d4" strokeWidth={2} name={`Node 3 (${nodeSummaries[2]?.label || "Node 3"})`} dot={{ r: 4 }} />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {includeNodeTable && (
-            <div>
-              <h3 className="font-medium text-gray-900 dark:text-gray-100 mb-3">Node Details</h3>
-              <div className="overflow-x-auto">
-                <table className="w-full border-collapse border border-gray-200 dark:border-gray-700 rounded-lg">
-                  <thead>
-                    <tr className="bg-gray-50 dark:bg-gray-800">
-                      <th className="px-4 py-3 text-left text-sm font-medium text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700">Node</th>
-                      <th className="px-4 py-3 text-left text-sm font-medium text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700">Appliance</th>
-                      <th className="px-4 py-3 text-left text-sm font-medium text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700">kWh Today</th>
-                      <th className="px-4 py-3 text-left text-sm font-medium text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700">Current Power</th>
-                      <th className="px-4 py-3 text-left text-sm font-medium text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700">Est. Cost</th>
-                      <th className="px-4 py-3 text-left text-sm font-medium text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700">Device ID</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {nodeSummaries.map((node, index) => (
-                      <tr key={node.applianceId} className={index % 2 === 0 ? "bg-white dark:bg-gray-900" : "bg-gray-50 dark:bg-gray-800"}>
-                        <td className="px-4 py-3 text-sm text-gray-900 dark:text-gray-100 border-b border-gray-200 dark:border-gray-700">Node {node.nodeId}</td>
-                        <td className="px-4 py-3 text-sm text-gray-900 dark:text-gray-100 border-b border-gray-200 dark:border-gray-700">{node.label}</td>
-                        <td className="px-4 py-3 text-sm text-gray-900 dark:text-gray-100 border-b border-gray-200 dark:border-gray-700">{node.todayKWh.toFixed(3)}</td>
-                        <td className="px-4 py-3 text-sm text-gray-900 dark:text-gray-100 border-b border-gray-200 dark:border-gray-700">{Math.round(node.currentPower)} W</td>
-                        <td className="px-4 py-3 text-sm text-gray-900 dark:text-gray-100 border-b border-gray-200 dark:border-gray-700">₱{node.estimatedCost.toFixed(2)}</td>
-                        <td className="px-4 py-3 text-sm text-gray-900 dark:text-gray-100 border-b border-gray-200 dark:border-gray-700">{node.deviceId}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {includeAlerts && alerts.length > 0 && (
-            <div>
-              <h3 className="font-medium text-gray-900 dark:text-gray-100 mb-3">Recent Alerts</h3>
-              <div className="space-y-2">
-                {alerts.map((alert) => (
-                  <div key={alert.id} className="p-3 bg-orange-50 dark:bg-orange-950/40 border border-orange-200 dark:border-orange-900 rounded-lg">
-                    <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{alert.message}</p>
-                    <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
-                      {alert.timestamp} • {alert.nodeLabel} • {alert.value}W / {alert.threshold}W
-                    </p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          <div className="mt-6 h-80">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={chartDataWithTotals}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="date" />
+                <YAxis />
+                <Tooltip formatter={(value: number | string) => `${Number(value).toFixed(3)} kWh`} />
+                <Legend content={renderCompactLegend} />
+                <Line type="monotone" dataKey="node1" stroke="#7c3aed" name={`Node 1 (${nodeSummaries[0]?.label || "Node 1"})`} strokeWidth={2} dot={false} />
+                <Line type="monotone" dataKey="node2" stroke="#ea580c" name={`Node 2 (${nodeSummaries[1]?.label || "Node 2"})`} strokeWidth={2} dot={false} />
+                <Line type="monotone" dataKey="node3" stroke="#0891b2" name={`Node 3 (${nodeSummaries[2]?.label || "Node 3"})`} strokeWidth={2} dot={false} />
+                <Line type="monotone" dataKey="total" stroke="#facc15" name="Total Daily kWh" strokeWidth={3} dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

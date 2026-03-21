@@ -8,6 +8,9 @@ const { ReadingStore } = require("./store");
 const {
   validateReadingPayload,
   validateSettingsPayload,
+  validateRateUpsertPayload,
+  validateRateDraftPayload,
+  isMonthString,
   normalizeReading
 } = require("./validation");
 
@@ -62,6 +65,96 @@ app.put("/api/settings", async (req, res, next) => {
     const data = await store.saveSettings(req.body);
     return res.json({
       message: "Settings saved",
+      data
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/rates", async (req, res, next) => {
+  const limitRaw = Number(req.query.limit || 240);
+  const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 1000) : 240;
+
+  try {
+    const data = await store.getRateHistory(limit);
+    res.json({
+      count: data.length,
+      data
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.put("/api/rates/:month", async (req, res, next) => {
+  const month = req.params.month;
+  if (!isMonthString(month)) {
+    return res.status(400).json({
+      message: "Invalid payload",
+      errors: ["month path parameter must be in YYYY-MM format"]
+    });
+  }
+
+  const { valid, errors } = validateRateUpsertPayload(req.body);
+  if (!valid) {
+    return res.status(400).json({
+      message: "Invalid payload",
+      errors
+    });
+  }
+
+  try {
+    const data = await store.upsertMonthlyRate(month, req.body.ratePerKwh, {
+      source: req.body.source,
+      sourceUrl: req.body.sourceUrl,
+      verified: req.body.verified
+    });
+    return res.json({
+      message: "Rate saved",
+      data
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.delete("/api/rates/:month", async (req, res, next) => {
+  const month = req.params.month;
+  if (!isMonthString(month)) {
+    return res.status(400).json({
+      message: "Invalid payload",
+      errors: ["month path parameter must be in YYYY-MM format"]
+    });
+  }
+
+  try {
+    const deleted = await store.deleteMonthlyRate(month);
+    if (!deleted) {
+      return res.status(404).json({ message: "Rate not found" });
+    }
+    return res.json({
+      message: "Rate deleted",
+      data: deleted
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/rates/fetch-draft", async (req, res, next) => {
+  const { valid, errors } = validateRateDraftPayload(req.body);
+  if (!valid) {
+    return res.status(400).json({
+      message: "Invalid payload",
+      errors
+    });
+  }
+
+  try {
+    const data = await store.fetchRateDraftFromUrl(req.body.url, req.body.month);
+    return res.json({
+      message: "Rate draft fetched",
       data
     });
   } catch (error) {

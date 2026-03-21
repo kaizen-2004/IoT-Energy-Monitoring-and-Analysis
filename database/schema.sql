@@ -47,6 +47,22 @@ INSERT INTO app_settings (id)
 VALUES (1)
 ON CONFLICT (id) DO NOTHING;
 
+-- Historical monthly electricity rates (PHP per kWh)
+CREATE TABLE IF NOT EXISTS monthly_rates (
+  month_key TEXT PRIMARY KEY CHECK (month_key ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'),
+  rate_per_kwh DOUBLE PRECISION NOT NULL CHECK (rate_per_kwh >= 0),
+  source TEXT NOT NULL DEFAULT 'manual',
+  source_url TEXT,
+  verified BOOLEAN NOT NULL DEFAULT TRUE,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+INSERT INTO monthly_rates (month_key, rate_per_kwh, source, verified)
+SELECT to_char(effective_month, 'YYYY-MM'), electricity_rate, 'manual', TRUE
+FROM app_settings
+WHERE id = 1
+ON CONFLICT (month_key) DO NOTHING;
+
 -- Optional materialized view for fast summary queries
 -- CREATE MATERIALIZED VIEW appliance_hourly_summary AS
 -- SELECT
