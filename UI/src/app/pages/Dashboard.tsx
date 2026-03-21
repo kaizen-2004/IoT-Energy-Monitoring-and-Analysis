@@ -87,12 +87,27 @@ function renderCompactLegend(props: { payload?: LegendPayloadItem[] }) {
   );
 }
 
-function parseDayKey(dayKey: string) {
+function parseDayKey(dayKey: string): Date | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dayKey)) {
+    return null;
+  }
+
   const [yearText, monthText, dayText] = dayKey.split("-");
   const year = Number(yearText);
   const month = Number(monthText);
   const day = Number(dayText);
-  return new Date(Date.UTC(year, month - 1, day));
+  const date = new Date(Date.UTC(year, month - 1, day));
+
+  if (
+    Number.isNaN(date.getTime()) ||
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
+  ) {
+    return null;
+  }
+
+  return date;
 }
 
 function toDayKey(date: Date) {
@@ -103,6 +118,9 @@ function toDayKey(date: Date) {
 
 function getWeekStartKey(dayKey: string) {
   const date = parseDayKey(dayKey);
+  if (!date) {
+    return dayKey;
+  }
   const utcDay = date.getUTCDay();
   const mondayOffset = utcDay === 0 ? 6 : utcDay - 1;
   const start = new Date(date);
@@ -117,6 +135,10 @@ function formatWeekRangeLabel(rows: ChartRow[]) {
 
   const startDate = parseDayKey(rows[0].dayKey);
   const endDate = parseDayKey(rows[rows.length - 1].dayKey);
+  if (!startDate || !endDate) {
+    return "Week";
+  }
+
   const formatter = new Intl.DateTimeFormat("en-PH", {
     timeZone: "UTC",
     month: "short",
@@ -127,6 +149,9 @@ function formatWeekRangeLabel(rows: ChartRow[]) {
 
 function formatWeeklyTick(dayKey: string) {
   const date = parseDayKey(dayKey);
+  if (!date) {
+    return dayKey || "-";
+  }
   return new Intl.DateTimeFormat("en-PH", {
     timeZone: "UTC",
     weekday: "short",
@@ -281,17 +306,60 @@ export default function Dashboard() {
     return bucket?.rows || [];
   }, [weeklyBuckets, selectedWeekKey]);
 
-  const renderedChartData = chartView === "weekly" ? selectedWeekRows : chartRows;
-  const hasChartData = renderedChartData.some(
+  const mobileMonthlyView = useMemo(() => {
+    const weekMap = new Map<
+      string,
+      {
+        rows: ChartRow[];
+      }
+    >();
+
+    chartRows.forEach((row) => {
+      const weekKey = getWeekStartKey(row.dayKey);
+      if (!weekMap.has(weekKey)) {
+        weekMap.set(weekKey, { rows: [] });
+      }
+      weekMap.get(weekKey)?.rows.push(row);
+    });
+
+    const sortedWeeks = [...weekMap.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+    const rows: ChartRow[] = [];
+    const rangeByDate = new Map<string, string>();
+
+    sortedWeeks.forEach(([weekKey, value], index) => {
+      const ordered = [...value.rows].sort((a, b) => a.dayKey.localeCompare(b.dayKey));
+      const node1 = ordered.reduce((sum, row) => sum + row.node1, 0);
+      const node2 = ordered.reduce((sum, row) => sum + row.node2, 0);
+      const node3 = ordered.reduce((sum, row) => sum + row.node3, 0);
+      const dateLabel = `W${index + 1}`;
+      rows.push({
+        dayKey: weekKey,
+        date: dateLabel,
+        node1: Number(node1.toFixed(4)),
+        node2: Number(node2.toFixed(4)),
+        node3: Number(node3.toFixed(4)),
+        total: Number((node1 + node2 + node3).toFixed(4))
+      });
+      rangeByDate.set(dateLabel, formatWeekRangeLabel(ordered));
+    });
+
+    return {
+      rows,
+      rangeByDate
+    };
+  }, [chartRows]);
+
+  const useMobileMonthlyAggregate = isMobile && chartView === "monthly";
+  const activeChartRows =
+    chartView === "weekly"
+      ? selectedWeekRows
+      : useMobileMonthlyAggregate
+        ? mobileMonthlyView.rows
+        : chartRows;
+
+  const hasChartData = activeChartRows.some(
     (row) => row.node1 > 0 || row.node2 > 0 || row.node3 > 0 || row.total > 0
   );
-  const chartMinWidth = useMemo(() => {
-    const pointCount = Math.max(renderedChartData.length, chartView === "monthly" ? 31 : 7);
-    if (chartView === "monthly") {
-      return isMobile ? Math.max(980, pointCount * 34) : 860;
-    }
-    return isMobile ? Math.max(600, pointCount * 80) : 640;
-  }, [chartView, renderedChartData.length, isMobile]);
 
   const totalTodayKWh = nodeSummaries.reduce((sum, node) => sum + node.currentDayKWh, 0);
   const totalTodayCost = nodeSummaries.reduce((sum, node) => sum + node.currentDayEstimatedCost, 0);
@@ -552,7 +620,9 @@ export default function Dashboard() {
             <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">Energy Profile (kWh)</h2>
             <p className="text-sm text-gray-600 dark:text-gray-400">
               {chartView === "monthly"
-                ? `Daily node usage for ${getMonthLabel(selectedMonth)} with total trend line`
+                ? useMobileMonthlyAggregate
+                  ? `Weekly totals for ${getMonthLabel(selectedMonth)} (mobile compact view)`
+                  : `Daily node usage for ${getMonthLabel(selectedMonth)} with total trend line`
                 : "Weekly calendar view for the selected month"}
             </p>
           </div>
@@ -595,17 +665,12 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <div className="h-[22rem] sm:h-[24rem] lg:h-96 overflow-x-auto">
-          {isMobile && (
-            <p className="text-xs text-gray-500 dark:text-gray-400 mb-2 px-1">
-              Swipe horizontally to view all chart days.
-            </p>
-          )}
+        <div className="h-[22rem] sm:h-[24rem] lg:h-96">
           {hasChartData ? (
-            <div className="h-full w-full" style={{ minWidth: chartMinWidth }}>
+            <div className="h-full w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart
-                  data={renderedChartData}
+                  data={activeChartRows}
                   margin={{ top: 24, right: 16, left: isMobile ? 4 : 12, bottom: 20 }}
                   barCategoryGap="26%"
                   barGap={6}
@@ -615,7 +680,7 @@ export default function Dashboard() {
                     dataKey={chartView === "weekly" ? "dayKey" : "date"}
                     tick={{ fontSize: isMobile ? 10 : 12 }}
                     tickMargin={10}
-                    interval={chartView === "monthly" ? 0 : 0}
+                    interval={chartView === "monthly" && !useMobileMonthlyAggregate ? 1 : 0}
                     tickFormatter={(value: string | number) =>
                       chartView === "weekly"
                         ? formatWeeklyTick(String(value))
@@ -632,8 +697,10 @@ export default function Dashboard() {
                     contentStyle={{ backgroundColor: "#fff", border: "1px solid #e5e7eb", borderRadius: "10px" }}
                     labelFormatter={(label: string | number) =>
                       chartView === "weekly"
-                        ? `Day ${formatWeeklyTick(String(label))}`
-                        : `Day ${label}`
+                        ? formatWeeklyTick(String(label || ""))
+                        : useMobileMonthlyAggregate
+                          ? `${label || "-"}: ${mobileMonthlyView.rangeByDate.get(String(label || "")) || "Week"}`
+                        : `Day ${label || "-"}`
                     }
                     formatter={(value: number | string, name: string) => [
                       `${Number(value).toFixed(3)} kWh`,
