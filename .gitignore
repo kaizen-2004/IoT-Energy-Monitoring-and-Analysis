@@ -4,3 +4,4 @@
 **/.env
 **/.env.*
 !**/.env.example
+firmware/esp32/config.h
