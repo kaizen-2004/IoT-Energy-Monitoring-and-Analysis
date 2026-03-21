@@ -47,8 +47,9 @@ type ChartRow = DailyData & {
   total: number;
 };
 
-function formatNodeHeading(nodeId: string, index: number) {
-  const numericMatch = nodeId.match(/(\d+)/);
+function formatNodeHeading(nodeId: string | number | null | undefined, index: number) {
+  const nodeIdText = String(nodeId ?? "");
+  const numericMatch = nodeIdText.match(/(\d+)/);
   if (numericMatch) {
     return `Node ${Number(numericMatch[1])}`;
   }
