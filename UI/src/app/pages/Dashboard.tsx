@@ -1,785 +1,475 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  AlertTriangle,
-  ChevronLeft,
-  ChevronRight,
-  Minus,
+import { useState, useEffect } from 'react';
+import { 
+  Zap, 
+  TrendingUp, 
+  TrendingDown, 
+  Minus, 
   RefreshCw,
-  TrendingDown,
-  TrendingUp,
   Wifi,
   WifiOff,
-  Zap
-} from "lucide-react";
-import {
-  Bar,
-  ComposedChart,
-  CartesianGrid,
-  Legend,
-  Line,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis
-} from "recharts";
-import {
-  API_BASE,
-  defaultMonth,
-  fetchAppSettings,
-  fetchDashboardData,
-  getMonthLabel,
-  getPHTDayKey,
+  AlertTriangle,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Loader2
+} from 'lucide-react';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { 
+  getLast7DaysData, 
+  getWholeMonthData,
+  getNodeSummaries, 
+  getAlerts, 
   getPHTTime,
-  type Alert,
-  type DailyData,
-  type NodeSummary,
-  type RateResolution
-} from "../utils/mockData";
+  getRateForMonth,
+  getComparisonData
+} from '../utils/mockData';
+import type { NodeSummary, DailyData, Alert, ComparisonData } from '../utils/mockData';
 
-type LegendPayloadItem = {
-  color?: string;
-  value?: string | number;
-};
-
-type ChartView = "monthly" | "weekly";
-
-type ChartRow = DailyData & {
-  total: number;
-};
-
-function formatNodeHeading(nodeId: string | number | null | undefined, index: number) {
-  const nodeIdText = String(nodeId ?? "");
-  const numericMatch = nodeIdText.match(/(\d+)/);
-  if (numericMatch) {
-    return `Node ${Number(numericMatch[1])}`;
-  }
-  return `Node ${index + 1}`;
-}
-
-function toShortLegendLabel(value: string) {
-  if (value.startsWith("Node 1")) return "Node 1";
-  if (value.startsWith("Node 2")) return "Node 2";
-  if (value.startsWith("Node 3")) return "Node 3";
-  if (value.toLowerCase().includes("total")) return "Total";
-  return value;
-}
-
-function renderCompactLegend(props: { payload?: LegendPayloadItem[] }) {
-  const payload = props.payload || [];
-
-  return (
-    <div className="w-full grid grid-cols-2 sm:flex sm:flex-wrap sm:justify-center gap-x-4 gap-y-2 pt-1">
-      {payload.map((entry, index) => (
-        <div key={`${entry.value || "legend"}-${index}`} className="inline-flex items-center gap-2 min-w-0">
-          <span
-            className="inline-block w-2.5 h-2.5 rounded-sm flex-shrink-0"
-            style={{ backgroundColor: entry.color || "#94a3b8" }}
-          />
-          <span className="text-xs sm:hidden text-gray-700 dark:text-gray-300 truncate">
-            {toShortLegendLabel(String(entry.value || ""))}
-          </span>
-          <span className="hidden sm:inline text-sm text-gray-700 dark:text-gray-300 truncate">
-            {String(entry.value || "")}
-          </span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function parseDayKey(dayKey: string): Date | null {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(dayKey)) {
-    return null;
-  }
-
-  const [yearText, monthText, dayText] = dayKey.split("-");
-  const year = Number(yearText);
-  const month = Number(monthText);
-  const day = Number(dayText);
-  const date = new Date(Date.UTC(year, month - 1, day));
-
-  if (
-    Number.isNaN(date.getTime()) ||
-    date.getUTCFullYear() !== year ||
-    date.getUTCMonth() !== month - 1 ||
-    date.getUTCDate() !== day
-  ) {
-    return null;
-  }
-
-  return date;
-}
-
-function toDayKey(date: Date) {
-  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(
-    date.getUTCDate()
-  ).padStart(2, "0")}`;
-}
-
-function getWeekStartKey(dayKey: string) {
-  const date = parseDayKey(dayKey);
-  if (!date) {
-    return dayKey;
-  }
-  const utcDay = date.getUTCDay();
-  const mondayOffset = utcDay === 0 ? 6 : utcDay - 1;
-  const start = new Date(date);
-  start.setUTCDate(start.getUTCDate() - mondayOffset);
-  return toDayKey(start);
-}
-
-function formatWeekRangeLabel(rows: ChartRow[]) {
-  if (rows.length === 0) {
-    return "Week";
-  }
-
-  const startDate = parseDayKey(rows[0].dayKey);
-  const endDate = parseDayKey(rows[rows.length - 1].dayKey);
-  if (!startDate || !endDate) {
-    return "Week";
-  }
-
-  const formatter = new Intl.DateTimeFormat("en-PH", {
-    timeZone: "UTC",
-    month: "short",
-    day: "numeric"
-  });
-  return `${formatter.format(startDate)} - ${formatter.format(endDate)}`;
-}
-
-function formatWeeklyTick(dayKey: string) {
-  const date = parseDayKey(dayKey);
-  if (!date) {
-    return dayKey || "-";
-  }
-  return new Intl.DateTimeFormat("en-PH", {
-    timeZone: "UTC",
-    weekday: "short",
-    day: "numeric"
-  }).format(date);
-}
-
-function shiftMonth(month: string, offset: number) {
-  const [yearText, monthText] = month.split("-");
-  const year = Number(yearText);
-  const monthIndex = Number(monthText) - 1;
-  const date = new Date(Date.UTC(year, monthIndex, 1));
-  date.setUTCMonth(date.getUTCMonth() + offset);
-  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
-}
+type ChartMode = '7-day' | 'whole-month';
+type ComparisonMode = 'today-vs-yesterday' | '7days-vs-prev7days' | 'month-vs-lastmonth';
 
 export default function Dashboard() {
   const [lastUpdated, setLastUpdated] = useState<string>(getPHTTime());
   const [isConnected, setIsConnected] = useState<boolean>(true);
-  const [isMobile, setIsMobile] = useState<boolean>(
-    typeof window !== "undefined" ? window.matchMedia("(max-width: 640px)").matches : false
-  );
+  const [isLoading, setIsLoading] = useState<boolean>(true);
   const [refreshInterval, setRefreshInterval] = useState<number>(30);
-  const [selectedMonth, setSelectedMonth] = useState<string>(defaultMonth());
-  const [chartView, setChartView] = useState<ChartView>("monthly");
-  const [selectedWeekKey, setSelectedWeekKey] = useState<string>("");
-  const [availableMonths, setAvailableMonths] = useState<string[]>([defaultMonth()]);
   const [chartData, setChartData] = useState<DailyData[]>([]);
   const [nodeSummaries, setNodeSummaries] = useState<NodeSummary[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
-  const [errorMessage, setErrorMessage] = useState<string>("");
-  const [coverageLabel, setCoverageLabel] = useState<string>("");
-  const [selectedMonthTotalKWh, setSelectedMonthTotalKWh] = useState<number>(0);
-  const [selectedMonthTotalCost, setSelectedMonthTotalCost] = useState<number>(0);
-  const [previousMonthTotalKWh, setPreviousMonthTotalKWh] = useState<number>(0);
-  const [previousMonthKey, setPreviousMonthKey] = useState<string>("");
-  const [resolvedRate, setResolvedRate] = useState<RateResolution>({
-    ratePerKwh: 11.5,
-    fromMonth: null,
-    fallback: false
-  });
-
-  useEffect(() => {
-    fetchAppSettings()
-      .then((settings) => {
-        setSelectedMonth(settings.effectiveMonth || defaultMonth());
-      })
-      .catch(() => {
-        setSelectedMonth(defaultMonth());
-      });
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-    const media = window.matchMedia("(max-width: 640px)");
-    const update = () => setIsMobile(media.matches);
-    update();
-    media.addEventListener("change", update);
-    return () => media.removeEventListener("change", update);
-  }, []);
-
-  const loadData = useCallback(async () => {
+  const [selectedMonth, setSelectedMonth] = useState<string>(new Date().toISOString().slice(0, 7));
+  const [rate, setRate] = useState<number>(11.5);
+  const [showControls, setShowControls] = useState<boolean>(false);
+  const [chartMode, setChartMode] = useState<ChartMode>('7-day');
+  const [comparisonMode, setComparisonMode] = useState<ComparisonMode>('month-vs-lastmonth');
+  const [comparisonData, setComparisonData] = useState<ComparisonData | null>(null);
+  
+  const loadData = () => {
+    setIsLoading(true);
     try {
-      const settings = await fetchAppSettings();
-      const dashboardData = await fetchDashboardData({
-        settings,
-        selectedMonth
-      });
-
-      setChartData(dashboardData.chartData);
-      setNodeSummaries(dashboardData.nodeSummaries);
-      setAlerts(dashboardData.alerts);
-      setAvailableMonths(dashboardData.availableMonths);
-      setCoverageLabel(dashboardData.selectedMonthCoverageLabel);
-      setSelectedMonthTotalKWh(dashboardData.selectedMonthTotalKWh);
-      setSelectedMonthTotalCost(dashboardData.selectedMonthTotalCost);
-      setPreviousMonthTotalKWh(dashboardData.previousMonthTotalKWh);
-      setPreviousMonthKey(dashboardData.previousMonthKey);
-      setResolvedRate(dashboardData.resolvedRate);
+      const currentRate = getRateForMonth(selectedMonth);
+      setRate(currentRate);
+      
+      if (chartMode === '7-day') {
+        setChartData(getLast7DaysData());
+      } else {
+        const [year, month] = selectedMonth.split('-').map(Number);
+        setChartData(getWholeMonthData(year, month));
+      }
+      
+      setNodeSummaries(getNodeSummaries(currentRate, selectedMonth));
+      setAlerts(getAlerts());
       setLastUpdated(getPHTTime());
       setIsConnected(true);
-      setErrorMessage("");
+      
+      // Load comparison data
+      const comparison = getComparisonData(comparisonMode, selectedMonth);
+      setComparisonData(comparison);
     } catch (error) {
+      console.error('Error loading data:', error);
       setIsConnected(false);
-      setErrorMessage(error instanceof Error ? error.message : "Unable to fetch data");
+    } finally {
+      setIsLoading(false);
     }
-  }, [selectedMonth]);
-
+  };
+  
   useEffect(() => {
     loadData();
-  }, [loadData]);
-
-  useEffect(() => {
-    const intervalId = window.setInterval(loadData, refreshInterval * 1000);
-    return () => window.clearInterval(intervalId);
-  }, [loadData, refreshInterval]);
-
-  const chartRows = useMemo<ChartRow[]>(
-    () =>
-      chartData.map((row) => ({
-        ...row,
-        total: Number((row.node1 + row.node2 + row.node3).toFixed(4))
-      })),
-    [chartData]
-  );
-
-  const weeklyBuckets = useMemo(() => {
-    const map = new Map<string, ChartRow[]>();
-    chartRows.forEach((row) => {
-      const weekKey = getWeekStartKey(row.dayKey);
-      if (!map.has(weekKey)) {
-        map.set(weekKey, []);
-      }
-      map.get(weekKey)?.push(row);
-    });
-
-    return [...map.entries()]
-      .map(([key, rows]) => ({
-        key,
-        rows: rows.sort((a, b) => a.dayKey.localeCompare(b.dayKey)),
-        label: formatWeekRangeLabel(rows.sort((a, b) => a.dayKey.localeCompare(b.dayKey)))
-      }))
-      .sort((a, b) => b.key.localeCompare(a.key));
-  }, [chartRows]);
-
-  useEffect(() => {
-    if (weeklyBuckets.length === 0) {
-      setSelectedWeekKey("");
-      return;
-    }
-
-    const weekExists = weeklyBuckets.some((bucket) => bucket.key === selectedWeekKey);
-    if (weekExists) {
-      return;
-    }
-
-    const todayKey = getPHTDayKey(new Date());
-    const containingToday = weeklyBuckets.find((bucket) =>
-      bucket.rows.some((row) => row.dayKey === todayKey)
-    );
-    const firstWithData = weeklyBuckets.find((bucket) =>
-      bucket.rows.some((row) => row.total > 0)
-    );
-    setSelectedWeekKey(containingToday?.key || firstWithData?.key || weeklyBuckets[0].key);
-  }, [weeklyBuckets, selectedWeekKey]);
-
-  const selectedWeekRows = useMemo(() => {
-    if (!selectedWeekKey) return [];
-    const bucket = weeklyBuckets.find((item) => item.key === selectedWeekKey);
-    return bucket?.rows || [];
-  }, [weeklyBuckets, selectedWeekKey]);
-
-  const mobileMonthlyView = useMemo(() => {
-    const weekMap = new Map<
-      string,
-      {
-        rows: ChartRow[];
-      }
-    >();
-
-    chartRows.forEach((row) => {
-      const weekKey = getWeekStartKey(row.dayKey);
-      if (!weekMap.has(weekKey)) {
-        weekMap.set(weekKey, { rows: [] });
-      }
-      weekMap.get(weekKey)?.rows.push(row);
-    });
-
-    const sortedWeeks = [...weekMap.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-    const rows: ChartRow[] = [];
-    const rangeByDate = new Map<string, string>();
-
-    sortedWeeks.forEach(([weekKey, value], index) => {
-      const ordered = [...value.rows].sort((a, b) => a.dayKey.localeCompare(b.dayKey));
-      const node1 = ordered.reduce((sum, row) => sum + row.node1, 0);
-      const node2 = ordered.reduce((sum, row) => sum + row.node2, 0);
-      const node3 = ordered.reduce((sum, row) => sum + row.node3, 0);
-      const dateLabel = `W${index + 1}`;
-      rows.push({
-        dayKey: weekKey,
-        date: dateLabel,
-        node1: Number(node1.toFixed(4)),
-        node2: Number(node2.toFixed(4)),
-        node3: Number(node3.toFixed(4)),
-        total: Number((node1 + node2 + node3).toFixed(4))
-      });
-      rangeByDate.set(dateLabel, formatWeekRangeLabel(ordered));
-    });
-
-    return {
-      rows,
-      rangeByDate
-    };
-  }, [chartRows]);
-
-  const useMobileMonthlyAggregate = isMobile && chartView === "monthly";
-  const activeChartRows =
-    chartView === "weekly"
-      ? selectedWeekRows
-      : useMobileMonthlyAggregate
-        ? mobileMonthlyView.rows
-        : chartRows;
-
-  const hasChartData = activeChartRows.some(
-    (row) => row.node1 > 0 || row.node2 > 0 || row.node3 > 0 || row.total > 0
-  );
-
-  const totalTodayKWh = nodeSummaries.reduce((sum, node) => sum + node.currentDayKWh, 0);
-  const totalTodayCost = nodeSummaries.reduce((sum, node) => sum + node.currentDayEstimatedCost, 0);
-
-  const difference = selectedMonthTotalKWh - previousMonthTotalKWh;
-  const percentChange = previousMonthTotalKWh > 0 ? (difference / previousMonthTotalKWh) * 100 : 0;
-
+    
+    const interval = setInterval(() => {
+      loadData();
+    }, refreshInterval * 1000);
+    
+    return () => clearInterval(interval);
+  }, [refreshInterval, selectedMonth, chartMode, comparisonMode]);
+  
+  const handleApplyInterval = () => {
+    loadData();
+    setShowControls(false);
+  };
+  
+  const handlePrevMonth = () => {
+    const date = new Date(selectedMonth + '-01');
+    date.setMonth(date.getMonth() - 1);
+    setSelectedMonth(date.toISOString().slice(0, 7));
+  };
+  
+  const handleNextMonth = () => {
+    const date = new Date(selectedMonth + '-01');
+    date.setMonth(date.getMonth() + 1);
+    setSelectedMonth(date.toISOString().slice(0, 7));
+  };
+  
+  // Calculate totals
+  const todayTotal = nodeSummaries.reduce((sum, node) => sum + node.todayKWh, 0);
+  const monthTotal = nodeSummaries.reduce((sum, node) => sum + node.monthKWh, 0);
+  const todayCostTotal = todayTotal * rate;
+  const monthCostTotal = monthTotal * rate;
+  
+  // Format selected month label
+  const selectedMonthLabel = new Date(selectedMonth + '-01').toLocaleDateString('en-PH', { 
+    month: 'long', 
+    year: 'numeric' 
+  });
+  
+  // Insight rendering
   let insightIcon = Minus;
-  let insightColor = "text-gray-600";
-  let insightText = "";
-
-  if (difference > 0.0001 && previousMonthTotalKWh > 0) {
-    insightIcon = TrendingUp;
-    insightColor = "text-red-600";
-    insightText = `You consumed ${Math.abs(difference).toFixed(3)} kWh (${Math.abs(percentChange).toFixed(1)}%) more than ${getMonthLabel(previousMonthKey)}.`;
-  } else if (difference < -0.0001 && previousMonthTotalKWh > 0) {
-    insightIcon = TrendingDown;
-    insightColor = "text-green-600";
-    insightText = `You consumed ${Math.abs(difference).toFixed(3)} kWh (${Math.abs(percentChange).toFixed(1)}%) less than ${getMonthLabel(previousMonthKey)}.`;
-  } else if (previousMonthTotalKWh === 0 && selectedMonthTotalKWh > 0) {
-    insightText = `You consumed ${selectedMonthTotalKWh.toFixed(3)} kWh for ${getMonthLabel(selectedMonth)}. No complete baseline from ${getMonthLabel(previousMonthKey)}.`;
-  } else {
-    insightText = `Consumption for ${getMonthLabel(selectedMonth)} is about the same as ${getMonthLabel(previousMonthKey)}.`;
+  let insightColor = 'text-gray-600';
+  let insightBgColor = 'bg-gray-50';
+  let insightBorderColor = 'border-gray-200';
+  let insightText = '';
+  
+  if (comparisonData) {
+    if (!comparisonData.hasBaseline) {
+      insightText = 'No baseline data available for selected comparison.';
+      insightColor = 'text-gray-600';
+      insightBgColor = 'bg-gray-50';
+      insightBorderColor = 'border-gray-200';
+    } else if (comparisonData.difference > 0.1) {
+      insightIcon = TrendingUp;
+      insightColor = 'text-red-600';
+      insightBgColor = 'bg-red-50';
+      insightBorderColor = 'border-red-200';
+      insightText = `You consumed ${Math.abs(comparisonData.difference).toFixed(2)} kWh (${Math.abs(comparisonData.percentChange).toFixed(1)}%) more than ${comparisonData.label.split(' vs ')[1]}.`;
+    } else if (comparisonData.difference < -0.1) {
+      insightIcon = TrendingDown;
+      insightColor = 'text-green-600';
+      insightBgColor = 'bg-green-50';
+      insightBorderColor = 'border-green-200';
+      insightText = `You consumed ${Math.abs(comparisonData.difference).toFixed(2)} kWh (${Math.abs(comparisonData.percentChange).toFixed(1)}%) less than ${comparisonData.label.split(' vs ')[1]}.`;
+    } else {
+      insightText = 'About the same as baseline period.';
+    }
   }
-
-  const rateCaption = resolvedRate.fallback && resolvedRate.fromMonth
-    ? `Using fallback rate from ${getMonthLabel(resolvedRate.fromMonth)}: PHP ${resolvedRate.ratePerKwh.toFixed(2)}/kWh`
-    : `Rate for ${getMonthLabel(selectedMonth)}: PHP ${resolvedRate.ratePerKwh.toFixed(2)}/kWh`;
-
+  
   const InsightIcon = insightIcon;
-
-  return (
-    <div className="space-y-4 sm:space-y-6">
-      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 p-4 sm:p-6">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-          <div>
-            <h1 className="text-3xl sm:text-3xl leading-tight break-words font-semibold text-gray-900 dark:text-gray-100">IoT Household Energy Monitoring Dashboard</h1>
-            <p className="text-sm sm:text-base text-gray-600 dark:text-gray-400 mt-1">Philippine context • Unit: kWh • Timezone: PHT (UTC+8)</p>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2 sm:gap-3 min-w-0">
-            <div className="flex items-center gap-2">
-              {isConnected ? (
-                <>
-                  <Wifi className="w-5 h-5 text-green-600" />
-                  <span className="text-sm text-green-600">Connected</span>
-                </>
-              ) : (
-                <>
-                  <WifiOff className="w-5 h-5 text-red-600" />
-                  <span className="text-sm text-red-600">Disconnected</span>
-                </>
-              )}
-            </div>
-            <div className="hidden sm:block h-6 w-px bg-gray-300 dark:bg-gray-700" />
-            <div className="text-sm text-gray-600 dark:text-gray-400 break-words min-w-0">Last updated: {lastUpdated}</div>
-          </div>
+  
+  // Loading state
+  if (isLoading && chartData.length === 0) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center">
+          <Loader2 className="w-12 h-12 text-blue-600 animate-spin mx-auto mb-3" />
+          <p className="text-sm text-gray-600">Loading dashboard...</p>
         </div>
       </div>
-
-      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 p-4 sm:p-6">
-        <div className="space-y-4">
-          <div>
-            <label htmlFor="month-selector" className="text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">
-              Billing Month
-            </label>
-            <div className="mt-2 grid grid-cols-[42px_1fr_42px] gap-2 min-w-0">
-              <button
-                type="button"
-                onClick={() => setSelectedMonth(shiftMonth(selectedMonth, -1))}
-                className="inline-flex items-center justify-center h-10 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
-                aria-label="Previous month"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-              <select
-                id="month-selector"
-                value={selectedMonth}
-                onChange={(event) => setSelectedMonth(event.target.value)}
-                className="w-full min-w-0 px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-950 dark:text-gray-100"
-              >
-                {availableMonths.map((month) => (
-                  <option key={month} value={month}>
-                    {getMonthLabel(month)}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                onClick={() => setSelectedMonth(shiftMonth(selectedMonth, 1))}
-                className="inline-flex items-center justify-center h-10 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
-                aria-label="Next month"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
+    );
+  }
+  
+  return (
+    <div className="space-y-4 max-w-md mx-auto">
+      {/* Header - Mobile Optimized */}
+      <div className="bg-gradient-to-br from-blue-600 to-blue-700 rounded-2xl shadow-lg p-5 text-white">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center backdrop-blur-sm">
+              <Zap className="w-6 h-6" />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold">Energy Monitor</h1>
+              <p className="text-xs text-blue-100">PHT • ₱{rate.toFixed(2)}/kWh</p>
             </div>
           </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-[auto_7.25rem_auto] gap-3 sm:items-center">
-            <label htmlFor="refresh-interval" className="text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">
-              Refresh Interval
+          
+          <div className="flex items-center gap-2">
+            {isConnected ? (
+              <Wifi className="w-5 h-5 text-green-300" />
+            ) : (
+              <WifiOff className="w-5 h-5 text-red-300" />
+            )}
+          </div>
+        </div>
+        
+        {/* Billing Month Selector */}
+        <div className="mb-3">
+          <label className="text-xs text-blue-100 block mb-2">Billing Month</label>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handlePrevMonth}
+              className="w-10 h-10 bg-white/10 backdrop-blur-sm rounded-lg flex items-center justify-center active:bg-white/20"
+            >
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+            <div className="flex-1 bg-white/10 backdrop-blur-sm rounded-lg px-4 py-2.5 text-center">
+              <span className="text-sm font-medium">{selectedMonthLabel}</span>
+            </div>
+            <button
+              onClick={handleNextMonth}
+              className="w-10 h-10 bg-white/10 backdrop-blur-sm rounded-lg flex items-center justify-center active:bg-white/20"
+            >
+              <ChevronRight className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+        
+        {/* KPI Cards */}
+        <div className="grid grid-cols-2 gap-3 mb-3">
+          <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3">
+            <p className="text-xs text-blue-100 mb-1">Today Total</p>
+            <p className="text-2xl font-bold">{todayTotal.toFixed(2)}</p>
+            <p className="text-xs">kWh</p>
+          </div>
+          
+          <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3">
+            <p className="text-xs text-blue-100 mb-1">Cost Today</p>
+            <p className="text-2xl font-bold">₱{todayCostTotal.toFixed(2)}</p>
+            <p className="text-xs">PHP</p>
+          </div>
+          
+          <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3">
+            <p className="text-xs text-blue-100 mb-1">Month Total</p>
+            <p className="text-2xl font-bold">{monthTotal.toFixed(2)}</p>
+            <p className="text-xs">kWh</p>
+          </div>
+          
+          <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3">
+            <p className="text-xs text-blue-100 mb-1">Month Cost</p>
+            <p className="text-2xl font-bold">₱{monthCostTotal.toFixed(2)}</p>
+            <p className="text-xs">PHP</p>
+          </div>
+        </div>
+        
+        {/* Last Updated */}
+        <div className="mt-3 flex items-center justify-between text-xs text-blue-100">
+          <span>Updated: {lastUpdated}</span>
+          <button
+            onClick={() => setShowControls(!showControls)}
+            className="flex items-center gap-1 bg-white/10 px-3 py-1.5 rounded-lg active:bg-white/20"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            Settings
+            <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showControls ? 'rotate-180' : ''}`} />
+          </button>
+        </div>
+        
+        {/* Expandable Controls */}
+        {showControls && (
+          <div className="mt-3 bg-white/10 backdrop-blur-sm rounded-xl p-4">
+            <label className="text-xs text-blue-100 block mb-2">
+              Refresh Interval (seconds)
             </label>
-            <div className="relative w-full">
+            <div className="flex gap-2">
               <input
-                id="refresh-interval"
                 type="number"
                 min="5"
                 max="300"
                 value={refreshInterval}
-                onChange={(event) => setRefreshInterval(Number.parseInt(event.target.value, 10) || 30)}
-                className="w-full px-3 py-2 pr-10 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-950 dark:text-gray-100"
+                onChange={(e) => setRefreshInterval(parseInt(e.target.value) || 30)}
+                className="flex-1 px-3 py-2 rounded-lg bg-white/20 text-white placeholder-blue-200 border border-white/30"
               />
-              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-500 dark:text-gray-400">sec</span>
+              <button
+                onClick={handleApplyInterval}
+                className="px-4 py-2 bg-white text-blue-600 rounded-lg font-medium active:bg-blue-50"
+              >
+                Apply
+              </button>
             </div>
-
-            <button
-              onClick={loadData}
-              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              <RefreshCw className="w-4 h-4" />
-              Refresh Now
-            </button>
           </div>
-
-          <div className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 break-all">
-            Data Source: {API_BASE}
-          </div>
-        </div>
-
-        <div className="mt-4 space-y-1">
-          <p className="text-sm text-gray-700 dark:text-gray-300">
-            Historical view: <span className="font-medium">{coverageLabel || getMonthLabel(selectedMonth)}</span>
-          </p>
-          <p className="text-xs text-gray-500 dark:text-gray-400">{rateCaption}</p>
-        </div>
-
-        {!isConnected && (
-          <p className="mt-3 text-sm text-red-600">
-            API error: {errorMessage}
-          </p>
         )}
       </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600 dark:text-gray-400">Total Today</p>
-              <p className="text-3xl font-semibold text-gray-900 dark:text-gray-100 mt-1">{totalTodayKWh.toFixed(3)}</p>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">kWh</p>
-            </div>
-            <div className="w-12 h-12 bg-blue-100 dark:bg-blue-950 rounded-lg flex items-center justify-center">
-              <Zap className="w-6 h-6 text-blue-600" />
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600 dark:text-gray-400">Est. Cost Today</p>
-              <p className="text-3xl font-semibold text-gray-900 dark:text-gray-100 mt-1">PHP {totalTodayCost.toFixed(2)}</p>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Live daily cost estimate</p>
-            </div>
-            <div className="w-12 h-12 bg-green-100 dark:bg-green-950 rounded-lg flex items-center justify-center">
-              <span className="text-lg font-semibold text-green-700 dark:text-green-400">PHP</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600 dark:text-gray-400">Total Cost ({getMonthLabel(selectedMonth)})</p>
-              <p className="text-3xl font-semibold text-gray-900 dark:text-gray-100 mt-1">PHP {selectedMonthTotalCost.toFixed(2)}</p>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{selectedMonthTotalKWh.toFixed(3)} kWh selected month</p>
-            </div>
-            <div className="w-12 h-12 bg-green-100 dark:bg-green-950 rounded-lg flex items-center justify-center">
-              <span className="text-lg font-semibold text-green-700 dark:text-green-400">PHP</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 p-6">
-          <div className="flex items-start gap-3">
-            <div
-              className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                difference > 0.0001 ? "bg-red-100 dark:bg-red-950" : difference < -0.0001 ? "bg-green-100 dark:bg-green-950" : "bg-gray-100 dark:bg-gray-800"
-              }`}
-            >
-              <InsightIcon className={`w-5 h-5 ${insightColor}`} />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">Insight</p>
-              <p className="text-sm text-gray-900 dark:text-gray-100">{insightText}</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div>
-        <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-4">Individual Nodes (Live Daily)</h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {nodeSummaries.map((node, index) => (
-            <div key={node.applianceId} className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 p-4 sm:p-6">
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <h3 className="font-semibold text-gray-900 dark:text-gray-100">{formatNodeHeading(node.nodeId, index)}</h3>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">{node.label}</p>
+      
+      {/* Alerts - Mobile Optimized */}
+      {alerts.length > 0 && (
+        <div className="space-y-2">
+          {alerts.map((alert) => (
+            <div key={alert.id} className="bg-orange-50 border border-orange-200 rounded-xl p-4">
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 bg-orange-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                  <AlertTriangle className="w-5 h-5 text-orange-600" />
                 </div>
-                <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                  index === 0 ? "bg-purple-100 dark:bg-purple-950" : index === 1 ? "bg-orange-100 dark:bg-orange-950" : "bg-cyan-100 dark:bg-cyan-950"
-                }`}>
-                  <Zap className={`w-5 h-5 ${
-                    index === 0 ? "text-purple-600" : index === 1 ? "text-orange-600" : "text-cyan-600"
-                  }`} />
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                <div>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">Today&apos;s Consumption</p>
-                  <p className="text-2xl font-semibold text-gray-900 dark:text-gray-100">{node.currentDayKWh.toFixed(3)} kWh</p>
-                </div>
-
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-gray-600 dark:text-gray-400">Current Power</span>
-                  <span className="font-medium text-gray-900 dark:text-gray-100">{Math.round(node.currentPower)} W</span>
-                </div>
-
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-gray-600 dark:text-gray-400">Est. Cost Today</span>
-                  <span className="font-medium text-gray-900 dark:text-gray-100">PHP {node.currentDayEstimatedCost.toFixed(2)}</span>
-                </div>
-
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-gray-600 dark:text-gray-400">Selected Month Total</span>
-                  <span className="font-medium text-gray-900 dark:text-gray-100">{node.periodKWh.toFixed(3)} kWh</span>
-                </div>
-
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-gray-600 dark:text-gray-400">Est. Cost ({getMonthLabel(selectedMonth)})</span>
-                  <span className="font-medium text-gray-900 dark:text-gray-100">PHP {node.estimatedCost.toFixed(2)}</span>
-                </div>
-
-                <div className="pt-3 border-t border-gray-200 dark:border-gray-800">
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Device ID: {node.deviceId}</p>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-gray-900 mb-1">{alert.message}</p>
+                  <div className="flex items-center gap-2 text-xs text-gray-600">
+                    <span>{alert.nodeLabel}</span>
+                    <span>•</span>
+                    <span>{alert.value}W / {alert.threshold}W</span>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">{alert.timestamp}</p>
                 </div>
               </div>
             </div>
           ))}
         </div>
-      </div>
-
-      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 p-4 sm:p-6">
-        <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4 mb-6">
-          <div>
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">Energy Profile (kWh)</h2>
-            <p className="text-sm text-gray-600 dark:text-gray-400">
-              {chartView === "monthly"
-                ? useMobileMonthlyAggregate
-                  ? `Weekly totals for ${getMonthLabel(selectedMonth)} (mobile compact view)`
-                  : `Daily node usage for ${getMonthLabel(selectedMonth)} with total trend line`
-                : "Weekly calendar view for the selected month"}
-            </p>
-          </div>
-
-          <div className="flex flex-col gap-3 w-full xl:w-auto">
-            <div className="flex items-center gap-2">
-              <label htmlFor="chart-view" className="text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">
-                Chart View
-              </label>
-              <select
-                id="chart-view"
-                value={chartView}
-                onChange={(event) => setChartView(event.target.value as ChartView)}
-                className="w-full sm:w-40 px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-950 dark:text-gray-100"
-              >
-                <option value="monthly">Monthly</option>
-                <option value="weekly">Weekly</option>
-              </select>
-            </div>
-
-            {chartView === "weekly" && (
-              <div className="flex items-center gap-2">
-                <label htmlFor="week-selector" className="text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">
-                  Week
-                </label>
-                <select
-                  id="week-selector"
-                  value={selectedWeekKey}
-                  onChange={(event) => setSelectedWeekKey(event.target.value)}
-                  className="w-full sm:w-48 px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-950 dark:text-gray-100"
-                >
-                  {weeklyBuckets.map((bucket) => (
-                    <option key={bucket.key} value={bucket.key}>
-                      {bucket.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="h-[22rem] sm:h-[24rem] lg:h-96">
-          {hasChartData ? (
-            <div className="h-full w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart
-                  data={activeChartRows}
-                  margin={{ top: 24, right: 16, left: isMobile ? 4 : 12, bottom: 20 }}
-                  barCategoryGap="26%"
-                  barGap={6}
-                >
-                  <CartesianGrid strokeDasharray="3 3" stroke="#94a3b8" strokeOpacity={0.35} />
-                  <XAxis
-                    dataKey={chartView === "weekly" ? "dayKey" : "date"}
-                    tick={{ fontSize: isMobile ? 10 : 12 }}
-                    tickMargin={10}
-                    interval={chartView === "monthly" && !useMobileMonthlyAggregate ? 1 : 0}
-                    tickFormatter={(value: string | number) =>
-                      chartView === "weekly"
-                        ? formatWeeklyTick(String(value))
-                        : String(value)
-                    }
-                  />
-                  <YAxis
-                    label={{ value: "kWh", angle: -90, position: "insideLeft" }}
-                    tick={{ fontSize: isMobile ? 10 : 12 }}
-                    tickMargin={8}
-                  />
-                  <Tooltip
-                    cursor={{ fill: "rgba(148, 163, 184, 0.14)" }}
-                    contentStyle={{ backgroundColor: "#fff", border: "1px solid #e5e7eb", borderRadius: "10px" }}
-                    labelFormatter={(label: string | number) =>
-                      chartView === "weekly"
-                        ? formatWeeklyTick(String(label || ""))
-                        : useMobileMonthlyAggregate
-                          ? `${label || "-"}: ${mobileMonthlyView.rangeByDate.get(String(label || "")) || "Week"}`
-                        : `Day ${label || "-"}`
-                    }
-                    formatter={(value: number | string, name: string) => [
-                      `${Number(value).toFixed(3)} kWh`,
-                      name
-                    ]}
-                  />
-                  <Legend
-                    verticalAlign="top"
-                    height={isMobile ? 84 : 56}
-                    content={renderCompactLegend}
-                  />
-                  <Bar
-                    dataKey="node1"
-                    name={`Node 1 (${nodeSummaries[0]?.label || "Node 1"})`}
-                    fill="#7c3aed"
-                    radius={[4, 4, 0, 0]}
-                    barSize={isMobile ? 11 : 14}
-                  />
-                  <Bar
-                    dataKey="node2"
-                    name={`Node 2 (${nodeSummaries[1]?.label || "Node 2"})`}
-                    fill="#ea580c"
-                    radius={[4, 4, 0, 0]}
-                    barSize={isMobile ? 11 : 14}
-                  />
-                  <Bar
-                    dataKey="node3"
-                    name={`Node 3 (${nodeSummaries[2]?.label || "Node 3"})`}
-                    fill="#0891b2"
-                    radius={[4, 4, 0, 0]}
-                    barSize={isMobile ? 11 : 14}
-                  />
-                  <Line
-                    key="total-line"
-                    type="linear"
-                    dataKey="total"
-                    stroke="#eab308"
-                    strokeWidth={isMobile ? 2.5 : 3}
-                    name="Total Daily kWh"
-                    dot={{ r: 2.5, fill: "#eab308", stroke: "#fef3c7", strokeWidth: 1 }}
-                    activeDot={{ r: 4.5, fill: "#eab308", stroke: "#fef3c7", strokeWidth: 2 }}
-                  />
-                </ComposedChart>
-              </ResponsiveContainer>
-            </div>
-          ) : (
-            <div className="h-full flex items-center justify-center rounded-lg border border-dashed border-gray-300 dark:border-gray-700 text-sm text-gray-600 dark:text-gray-400">
-              No readings found for this chart selection. Data will appear after ingest starts.
-            </div>
-          )}
-        </div>
-      </div>
-
-      {alerts.length > 0 && (
-        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <AlertTriangle className="w-5 h-5 text-orange-600" />
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Alerts ({getMonthLabel(selectedMonth)})</h2>
-          </div>
-
-          <div className="space-y-3">
-            {alerts.map((alert) => (
-              <div key={alert.id} className="flex items-start gap-3 p-4 bg-orange-50 dark:bg-orange-950/40 border border-orange-200 dark:border-orange-900 rounded-lg">
-                <AlertTriangle className="w-5 h-5 text-orange-600 flex-shrink-0 mt-0.5" />
-                <div className="flex-1">
-                  <p className="text-sm text-gray-900 dark:text-gray-100 font-medium">{alert.message}</p>
-                  <div className="flex items-center gap-4 mt-1 text-xs text-gray-600 dark:text-gray-400">
-                    <span>{alert.timestamp}</span>
-                    <span>•</span>
-                    <span>{alert.nodeLabel}</span>
-                    <span>•</span>
-                    <span>{alert.value}W / {alert.threshold}W</span>
-                  </div>
+      )}
+      
+      {/* Node Cards - Mobile Optimized */}
+      <div className="space-y-3">
+        <h2 className="text-lg font-semibold text-gray-900 px-1">Device Status</h2>
+        {nodeSummaries.map((node, index) => (
+          <div key={node.nodeId} className="bg-white rounded-2xl shadow-sm border border-gray-200 p-4">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
+                  index === 0 ? 'bg-purple-100' : index === 1 ? 'bg-orange-100' : 'bg-cyan-100'
+                }`}>
+                  <Zap className={`w-6 h-6 ${
+                    index === 0 ? 'text-purple-600' : index === 1 ? 'text-orange-600' : 'text-cyan-600'
+                  }`} />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-gray-900">{node.label}</h3>
+                  <p className="text-xs text-gray-500">Node {node.nodeId}</p>
                 </div>
               </div>
-            ))}
+            </div>
+            
+            <div className="grid grid-cols-2 gap-3 mb-3">
+              <div className="bg-gray-50 rounded-xl p-3">
+                <p className="text-xs text-gray-600 mb-1">Today</p>
+                <p className="text-lg font-semibold text-gray-900">{node.todayKWh.toFixed(2)} kWh</p>
+              </div>
+              
+              <div className="bg-gray-50 rounded-xl p-3">
+                <p className="text-xs text-gray-600 mb-1">Current Power</p>
+                <p className="text-lg font-semibold text-gray-900">{Math.round(node.currentPower)}W</p>
+              </div>
+              
+              <div className="bg-gray-50 rounded-xl p-3">
+                <p className="text-xs text-gray-600 mb-1">Cost Today</p>
+                <p className="text-lg font-semibold text-gray-900">₱{node.estimatedCost.toFixed(2)}</p>
+              </div>
+              
+              <div className="bg-gray-50 rounded-xl p-3">
+                <p className="text-xs text-gray-600 mb-1">Month Total</p>
+                <p className="text-lg font-semibold text-gray-900">{node.monthKWh.toFixed(2)} kWh</p>
+              </div>
+            </div>
+            
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-3">
+              <p className="text-xs text-gray-600 mb-1">Month Est. Cost</p>
+              <p className="text-xl font-bold text-blue-600">₱{node.monthEstimatedCost.toFixed(2)}</p>
+            </div>
+            
+            <div className="mt-3 pt-3 border-t border-gray-100">
+              <p className="text-xs text-gray-400">Device ID: {node.deviceId}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+      
+      {/* Trend Chart - Mobile Optimized */}
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-4">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold text-gray-900">Energy Trend</h2>
+          
+          <select
+            value={chartMode}
+            onChange={(e) => setChartMode(e.target.value as ChartMode)}
+            className="text-sm px-3 py-2 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          >
+            <option value="7-day">7-Day Trend</option>
+            <option value="whole-month">Whole Month</option>
+          </select>
+        </div>
+        
+        <div className="h-64 -mx-2">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={chartData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+              <XAxis 
+                dataKey="date" 
+                tick={{ fontSize: 10 }}
+                tickMargin={8}
+                interval={chartMode === 'whole-month' ? 'preserveStartEnd' : 0}
+              />
+              <YAxis 
+                tick={{ fontSize: 10 }}
+                tickMargin={8}
+                width={40}
+                label={{ value: 'kWh', angle: -90, position: 'insideLeft', style: { fontSize: 10 } }}
+              />
+              <Tooltip 
+                contentStyle={{ 
+                  backgroundColor: '#fff', 
+                  border: '1px solid #e5e7eb',
+                  borderRadius: '8px',
+                  fontSize: '12px'
+                }}
+              />
+              <Legend 
+                wrapperStyle={{ fontSize: '11px' }}
+                iconSize={10}
+              />
+              <Line 
+                id="dashboard-node1-line"
+                type="monotone" 
+                dataKey="node1" 
+                stroke="#9333ea" 
+                strokeWidth={2}
+                name="Refrigerator"
+                dot={false}
+                activeDot={{ r: 4 }}
+              />
+              <Line 
+                id="dashboard-node2-line"
+                type="monotone" 
+                dataKey="node2" 
+                stroke="#f97316" 
+                strokeWidth={2}
+                name="Air Conditioner"
+                dot={false}
+                activeDot={{ r: 4 }}
+              />
+              <Line 
+                id="dashboard-node3-line"
+                type="monotone" 
+                dataKey="node3" 
+                stroke="#06b6d4" 
+                strokeWidth={2}
+                name="Water Heater"
+                dot={false}
+                activeDot={{ r: 4 }}
+              />
+              <Line 
+                id="dashboard-total-line"
+                type="monotone" 
+                dataKey="total" 
+                stroke="#1f2937" 
+                strokeWidth={2.5}
+                name="Total"
+                dot={false}
+                activeDot={{ r: 5 }}
+                strokeDasharray="5 5"
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+      
+      {/* Insight Module - Mobile Optimized */}
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-lg font-semibold text-gray-900">Insights</h2>
+        </div>
+        
+        <div className="mb-3">
+          <label className="text-xs text-gray-600 block mb-2">Comparison Period</label>
+          <select
+            value={comparisonMode}
+            onChange={(e) => setComparisonMode(e.target.value as ComparisonMode)}
+            className="w-full text-sm px-3 py-2.5 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          >
+            <option value="today-vs-yesterday">Today vs Yesterday</option>
+            <option value="7days-vs-prev7days">Current 7 Days vs Previous 7 Days</option>
+            <option value="month-vs-lastmonth">Current Month vs Last Month</option>
+          </select>
+        </div>
+        
+        <div className={`${insightBgColor} border ${insightBorderColor} rounded-xl p-4`}>
+          <div className="flex items-start gap-3">
+            <div className={`w-10 h-10 ${insightBgColor} rounded-lg flex items-center justify-center flex-shrink-0`}>
+              <InsightIcon className={`w-6 h-6 ${insightColor}`} />
+            </div>
+            <div className="flex-1">
+              <p className={`text-sm font-medium ${insightColor} mb-2`}>{insightText}</p>
+              {comparisonData && (
+                <p className="text-xs text-gray-500">
+                  {comparisonData.label}
+                </p>
+              )}
+            </div>
           </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }

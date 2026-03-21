@@ -5,3 +5,9 @@
 **/.env.*
 !**/.env.example
 firmware/esp32/config.h
+UI/node_modules/
+UI/dist/
+UI/src/imports/pasted_text/
+archive/ 
+Updated_UI/
+Updated_UI.zip

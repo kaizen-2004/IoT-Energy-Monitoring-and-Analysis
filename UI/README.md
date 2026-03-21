@@ -1,24 +1,11 @@
-# Dashboard UI (`UI/`)
 
-Figma-generated React/Vite dashboard used by this project.
+  # IoT Household Energy Dashboard
 
-## Run locally
+  This is a code bundle for IoT Household Energy Dashboard. The original project is available at https://www.figma.com/design/DNmBqgsFXDHve0r1Y0ClQJ/IoT-Household-Energy-Dashboard.
 
-1. Install dependencies:
-```bash
-npm install
-```
+  ## Running the code
 
-2. Optional API base override:
-```bash
-cp .env.example .env
-# then edit VITE_API_BASE if needed
-```
+  Run `npm i` to install the dependencies.
 
-3. Start dev server:
-```bash
-npm run dev
-```
-
-By default, it reads from `VITE_API_BASE` (or falls back to `http://localhost:8080`).
+  Run `npm run dev` to start the development server.
   

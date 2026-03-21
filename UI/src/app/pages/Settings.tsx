@@ -1,531 +1,412 @@
-import { useEffect, useMemo, useState } from "react";
-import {
-  Bell,
-  DollarSign,
-  Globe,
-  MapPin,
-  Palette,
-  Save,
-  Tag,
-  Trash2,
-  WandSparkles
-} from "lucide-react";
-import { toast } from "sonner";
-import {
-  API_BASE,
-  defaultMonth,
-  deleteMonthlyRate,
-  fetchAppSettings,
-  fetchRateDraft,
-  getMonthLabel,
-  saveAppSettings,
-  saveMonthlyRate,
-  type AppSettings,
-  type MonthlyRate
-} from "../utils/mockData";
-import { getSavedThemeMode, saveTheme, type ThemeMode } from "../utils/theme";
-
-function resolveRateForMonth(rateHistory: MonthlyRate[], month: string, fallbackRate: number) {
-  const sorted = [...rateHistory].sort((a, b) => a.month.localeCompare(b.month));
-  const exact = sorted.find((item) => item.month === month);
-  if (exact) {
-    return { rate: exact.ratePerKwh, fromMonth: exact.month, fallback: false };
-  }
-
-  const previous = [...sorted].reverse().find((item) => item.month < month);
-  if (previous) {
-    return { rate: previous.ratePerKwh, fromMonth: previous.month, fallback: true };
-  }
-
-  return { rate: fallbackRate, fromMonth: null, fallback: false };
-}
-
-function formatMonthTimestamp(value: string | null) {
-  if (!value) return "-";
-  return new Date(value).toLocaleString("en-PH", {
-    timeZone: "Asia/Manila",
-    dateStyle: "medium",
-    timeStyle: "short"
-  });
-}
+import { useState, useEffect } from 'react';
+import { Save, DollarSign, Tag, Bell, MapPin, Trash2, Plus, CheckCircle2, XCircle } from 'lucide-react';
+import { toast } from 'sonner';
+import { getMonthlyRates, saveMonthlyRates, getPHTTime } from '../utils/mockData';
+import type { MonthlyRate } from '../utils/mockData';
 
 export default function Settings() {
-  const [monthlyRate, setMonthlyRate] = useState<string>("11.5");
-  const [effectiveMonth, setEffectiveMonth] = useState<string>(defaultMonth());
-  const [rateHistory, setRateHistory] = useState<MonthlyRate[]>([]);
-  const [node1Label, setNode1Label] = useState<string>("Node 1");
-  const [node2Label, setNode2Label] = useState<string>("Node 2");
-  const [node3Label, setNode3Label] = useState<string>("Node 3");
-  const [node1Threshold, setNode1Threshold] = useState<string>("500");
-  const [node2Threshold, setNode2Threshold] = useState<string>("800");
-  const [node3Threshold, setNode3Threshold] = useState<string>("600");
-  const [timezone, setTimezone] = useState<string>("Asia/Manila");
-  const [themeMode, setThemeMode] = useState<ThemeMode>("light");
-  const [isSavingBilling, setIsSavingBilling] = useState<boolean>(false);
-  const [isSavingNodes, setIsSavingNodes] = useState<boolean>(false);
-  const [isSavingInsight, setIsSavingInsight] = useState<boolean>(false);
-  const [isDeletingMonth, setIsDeletingMonth] = useState<string>("");
-  const [draftUrl, setDraftUrl] = useState<string>("");
-  const [isFetchingDraft, setIsFetchingDraft] = useState<boolean>(false);
-  const [draftCandidates, setDraftCandidates] = useState<number[]>([]);
-
-  const sortedRateHistory = useMemo(
-    () => [...rateHistory].sort((a, b) => b.month.localeCompare(a.month)),
-    [rateHistory]
-  );
-
-  const loadSettings = async () => {
-    const settings = await fetchAppSettings();
-    applySettings(settings);
-  };
-
-  const applySettings = (settings: AppSettings) => {
-    setThemeMode(getSavedThemeMode());
-    setRateHistory(settings.rateHistory || []);
-    setNode1Label(settings.nodeLabels[0] || "Node 1");
-    setNode2Label(settings.nodeLabels[1] || "Node 2");
-    setNode3Label(settings.nodeLabels[2] || "Node 3");
-    setNode1Threshold(String(settings.nodeThresholds[0] || 500));
-    setNode2Threshold(String(settings.nodeThresholds[1] || 800));
-    setNode3Threshold(String(settings.nodeThresholds[2] || 600));
-    setTimezone(settings.timezone || "Asia/Manila");
-
-    const monthToUse = settings.effectiveMonth || defaultMonth();
-    setEffectiveMonth(monthToUse);
-    const resolved = resolveRateForMonth(
-      settings.rateHistory || [],
-      monthToUse,
-      settings.electricityRate
-    );
-    setMonthlyRate(String(resolved.rate));
-  };
-
+  // Billing Settings
+  const [selectedRateMonth, setSelectedRateMonth] = useState<string>(new Date().toISOString().slice(0, 7));
+  const [monthlyRateInput, setMonthlyRateInput] = useState<string>('11.5');
+  const [monthlyRates, setMonthlyRates] = useState<MonthlyRate[]>([]);
+  
+  // Node Settings
+  const [node1Label, setNode1Label] = useState<string>('Refrigerator');
+  const [node2Label, setNode2Label] = useState<string>('Air Conditioner');
+  const [node3Label, setNode3Label] = useState<string>('Water Heater');
+  
+  const [node1Threshold, setNode1Threshold] = useState<string>('500');
+  const [node2Threshold, setNode2Threshold] = useState<string>('800');
+  const [node3Threshold, setNode3Threshold] = useState<string>('600');
+  
+  // Insight Settings
+  const [timezone, setTimezone] = useState<string>('Asia/Manila');
+  
   useEffect(() => {
-    loadSettings().catch((error) => {
-      toast.error(
-        `Could not load cloud settings. Using local fallback. ${error instanceof Error ? error.message : ""}`
-      );
-    });
+    // Load saved settings
+    const savedLabels = localStorage.getItem('nodeLabels');
+    if (savedLabels) {
+      const labels = JSON.parse(savedLabels);
+      setNode1Label(labels[0]);
+      setNode2Label(labels[1]);
+      setNode3Label(labels[2]);
+    }
+    
+    const savedThresholds = localStorage.getItem('nodeThresholds');
+    if (savedThresholds) {
+      const thresholds = JSON.parse(savedThresholds);
+      setNode1Threshold(thresholds[0].toString());
+      setNode2Threshold(thresholds[1].toString());
+      setNode3Threshold(thresholds[2].toString());
+    }
+    
+    const savedTimezone = localStorage.getItem('timezone');
+    if (savedTimezone) setTimezone(savedTimezone);
+    
+    // Load monthly rates
+    const rates = getMonthlyRates();
+    setMonthlyRates(rates);
+    
+    // Set input value to selected month's rate if exists
+    const selectedRate = rates.find(r => r.month === selectedRateMonth);
+    if (selectedRate) {
+      setMonthlyRateInput(selectedRate.rate.toString());
+    }
   }, []);
-
-  const handleMonthChange = (month: string) => {
-    setEffectiveMonth(month);
-    const resolved = resolveRateForMonth(rateHistory, month, Number(monthlyRate) || 11.5);
-    setMonthlyRate(String(resolved.rate));
-    setDraftCandidates([]);
-  };
-
-  const rateMeta = resolveRateForMonth(rateHistory, effectiveMonth, Number(monthlyRate) || 11.5);
-
-  const handleSaveBilling = async () => {
-    const rateValue = Number(monthlyRate);
-    if (!Number.isFinite(rateValue) || rateValue < 0) {
-      toast.error("Monthly rate must be a number greater than or equal to 0.");
+  
+  useEffect(() => {
+    // Update input when selected month changes
+    const selectedRate = monthlyRates.find(r => r.month === selectedRateMonth);
+    if (selectedRate) {
+      setMonthlyRateInput(selectedRate.rate.toString());
+    } else {
+      setMonthlyRateInput('11.5');
+    }
+  }, [selectedRateMonth, monthlyRates]);
+  
+  const handleSaveMonthlyRate = () => {
+    const rateValue = parseFloat(monthlyRateInput);
+    if (isNaN(rateValue) || rateValue <= 0) {
+      toast.error('Please enter a valid rate');
       return;
     }
-
-    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(effectiveMonth)) {
-      toast.error("Month must be in YYYY-MM format.");
-      return;
-    }
-
-    setIsSavingBilling(true);
-    try {
-      await saveAppSettings({ effectiveMonth });
-      const settings = await saveMonthlyRate(effectiveMonth, rateValue, {
-        source: "manual",
-        verified: true
+    
+    const existingRateIndex = monthlyRates.findIndex(r => r.month === selectedRateMonth);
+    const updatedRates = [...monthlyRates];
+    
+    if (existingRateIndex >= 0) {
+      // Update existing rate
+      updatedRates[existingRateIndex] = {
+        ...updatedRates[existingRateIndex],
+        rate: rateValue,
+        source: 'manual',
+        lastUpdated: getPHTTime(),
+      };
+    } else {
+      // Add new rate
+      updatedRates.push({
+        month: selectedRateMonth,
+        rate: rateValue,
+        source: 'manual',
+        verified: true,
+        lastUpdated: getPHTTime(),
       });
-      applySettings(settings);
-      toast.success(`Rate saved for ${getMonthLabel(effectiveMonth)}`);
-    } catch (error) {
-      toast.error(
-        `Could not save billing settings. ${error instanceof Error ? error.message : "Unknown error"}`
-      );
-    } finally {
-      setIsSavingBilling(false);
     }
+    
+    // Sort by month descending
+    updatedRates.sort((a, b) => b.month.localeCompare(a.month));
+    
+    setMonthlyRates(updatedRates);
+    saveMonthlyRates(updatedRates);
+    
+    // Also update the legacy electricityRate for backward compatibility
+    if (selectedRateMonth === new Date().toISOString().slice(0, 7)) {
+      localStorage.setItem('electricityRate', rateValue.toString());
+    }
+    
+    toast.success('Rate saved successfully');
   };
-
-  const handleFetchDraft = async () => {
-    if (!draftUrl.trim()) {
-      toast.error("Enter a Meralco advisory or archive URL first.");
-      return;
-    }
-
-    setIsFetchingDraft(true);
-    try {
-      const draft = await fetchRateDraft(draftUrl.trim(), effectiveMonth);
-      setDraftCandidates(draft.candidates || []);
-      if (draft.recommendedRate !== null && Number.isFinite(draft.recommendedRate)) {
-        setMonthlyRate(String(draft.recommendedRate));
-        toast.success("Draft rate fetched. Review and click Save Billing Settings to confirm.");
-      } else {
-        toast.info("No kWh rate candidate found in the page. Enter rate manually.");
-      }
-    } catch (error) {
-      toast.error(`Failed to fetch draft rate. ${error instanceof Error ? error.message : "Unknown error"}`);
-    } finally {
-      setIsFetchingDraft(false);
-    }
+  
+  const handleDeleteRate = (month: string) => {
+    const updatedRates = monthlyRates.filter(r => r.month !== month);
+    setMonthlyRates(updatedRates);
+    saveMonthlyRates(updatedRates);
+    toast.success('Rate deleted');
   };
-
-  const handleDeleteRate = async (month: string) => {
-    setIsDeletingMonth(month);
-    try {
-      const settings = await deleteMonthlyRate(month);
-      applySettings(settings);
-      toast.success(`Deleted historical rate for ${getMonthLabel(month)}`);
-    } catch (error) {
-      toast.error(`Could not delete rate. ${error instanceof Error ? error.message : "Unknown error"}`);
-    } finally {
-      setIsDeletingMonth("");
-    }
+  
+  const handleToggleVerified = (month: string) => {
+    const updatedRates = monthlyRates.map(r => 
+      r.month === month ? { ...r, verified: !r.verified } : r
+    );
+    setMonthlyRates(updatedRates);
+    saveMonthlyRates(updatedRates);
+    toast.success('Rate verification updated');
   };
-
-  const handleSaveNodes = async () => {
-    const labels = [node1Label, node2Label, node3Label].map((value, index) => value.trim() || `Node ${index + 1}`);
+  
+  const handleSaveNodes = () => {
+    const labels = [node1Label, node2Label, node3Label];
     const thresholds = [
-      Number.parseInt(node1Threshold, 10) || 500,
-      Number.parseInt(node2Threshold, 10) || 800,
-      Number.parseInt(node3Threshold, 10) || 600
+      parseInt(node1Threshold) || 500,
+      parseInt(node2Threshold) || 800,
+      parseInt(node3Threshold) || 600,
     ];
-
-    setIsSavingNodes(true);
-    try {
-      const settings = await saveAppSettings({
-        nodeLabels: labels,
-        nodeThresholds: thresholds
-      });
-      applySettings(settings);
-      toast.success("Node settings saved.");
-    } catch (error) {
-      toast.error(`Could not save node settings. ${error instanceof Error ? error.message : "Unknown error"}`);
-    } finally {
-      setIsSavingNodes(false);
-    }
+    
+    localStorage.setItem('nodeLabels', JSON.stringify(labels));
+    localStorage.setItem('nodeThresholds', JSON.stringify(thresholds));
+    toast.success('Node settings saved');
   };
-
-  const handleSaveInsight = async () => {
-    setIsSavingInsight(true);
-    try {
-      const settings = await saveAppSettings({ timezone });
-      applySettings(settings);
-      toast.success("Insight settings saved.");
-    } catch (error) {
-      toast.error(`Could not save insight settings. ${error instanceof Error ? error.message : "Unknown error"}`);
-    } finally {
-      setIsSavingInsight(false);
-    }
+  
+  const handleSaveInsight = () => {
+    localStorage.setItem('timezone', timezone);
+    toast.success('Insight settings saved');
   };
-
-  const handleSaveAppearance = () => {
-    saveTheme(themeMode);
-    toast.success("Appearance settings saved");
-  };
-
+  
   return (
-    <div className="space-y-4 sm:space-y-6 max-w-6xl mx-auto">
-      <div>
-        <h1 className="text-3xl font-semibold text-gray-900 dark:text-gray-100">Settings</h1>
-        <p className="text-gray-600 dark:text-gray-400 mt-1">Configure monthly rates, node behavior, and dashboard preferences</p>
+    <div className="space-y-4 max-w-md mx-auto">
+      {/* Header */}
+      <div className="px-1">
+        <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
+        <p className="text-sm text-gray-600 mt-1">Configure your energy monitor</p>
       </div>
-
-      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 p-4 sm:p-6">
-        <div className="flex items-center gap-2 mb-6">
-          <DollarSign className="w-5 h-5 text-gray-700 dark:text-gray-300" />
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Billing Settings</h2>
+      
+      {/* Billing Settings */}
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
+        <div className="flex items-center gap-2 mb-4">
+          <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center">
+            <DollarSign className="w-5 h-5 text-blue-600" />
+          </div>
+          <h2 className="text-lg font-semibold text-gray-900">Billing Rates</h2>
         </div>
-
+        
         <div className="space-y-4">
           <div>
-            <label htmlFor="effective-month" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Billing Month
+            <label htmlFor="rate-month" className="block text-sm font-medium text-gray-700 mb-2">
+              Select Month
             </label>
             <input
-              id="effective-month"
+              id="rate-month"
               type="month"
-              value={effectiveMonth}
-              onChange={(event) => handleMonthChange(event.target.value)}
-              className="w-full sm:w-72 px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-950 dark:text-gray-100"
+              value={selectedRateMonth}
+              onChange={(e) => setSelectedRateMonth(e.target.value)}
+              className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             />
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Selected month: {getMonthLabel(effectiveMonth)}</p>
           </div>
-
+          
           <div>
-            <label htmlFor="monthly-rate" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Rate for {getMonthLabel(effectiveMonth)} (PHP/kWh)
+            <label htmlFor="monthly-rate" className="block text-sm font-medium text-gray-700 mb-2">
+              Rate per kWh
             </label>
-            <div className="relative min-w-0 max-w-xl">
-              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-600 dark:text-gray-400">₱</span>
+            <div className="flex items-center gap-2">
+              <span className="text-gray-600 font-medium">₱</span>
               <input
                 id="monthly-rate"
                 type="number"
                 step="0.01"
                 min="0"
-                value={monthlyRate}
-                onChange={(event) => setMonthlyRate(event.target.value)}
-                className="w-full min-w-0 pl-8 pr-28 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-950 dark:text-gray-100"
-                placeholder="e.g., 13.81"
+                value={monthlyRateInput}
+                onChange={(e) => setMonthlyRateInput(e.target.value)}
+                className="flex-1 px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-lg"
+                placeholder="11.50"
               />
-              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-500 dark:text-gray-400">per kWh</span>
             </div>
-            {rateMeta.fallback && rateMeta.fromMonth ? (
-              <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-                No exact rate stored for {getMonthLabel(effectiveMonth)}. Showing fallback from {getMonthLabel(rateMeta.fromMonth)}.
-              </p>
-            ) : (
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">This value is used for monthly cost computation.</p>
-            )}
+            <p className="text-xs text-gray-500 mt-2">Your electricity provider's rate</p>
           </div>
-
-          <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 bg-gray-50 dark:bg-gray-800/70">
-            <div className="flex items-center gap-2 mb-3">
-              <Globe className="w-4 h-4 text-gray-700 dark:text-gray-300" />
-              <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Auto-Fetch Draft Rate (Optional)</p>
-            </div>
-            <p className="text-xs text-gray-600 dark:text-gray-400 mb-3">
-              Hybrid mode: fetch a draft from Meralco page, then manually confirm by clicking Save Billing Settings.
-            </p>
-            <div className="flex flex-col sm:flex-row gap-2">
-              <input
-                type="url"
-                value={draftUrl}
-                onChange={(event) => setDraftUrl(event.target.value)}
-                placeholder="https://company.meralco.com.ph/news-and-advisories/..."
-                className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-950 dark:text-gray-100"
-              />
-              <button
-                type="button"
-                onClick={handleFetchDraft}
-                disabled={isFetchingDraft}
-                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg border border-blue-300 text-blue-700 dark:text-blue-300 dark:border-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/40"
-              >
-                <WandSparkles className="w-4 h-4" />
-                {isFetchingDraft ? "Fetching..." : "Fetch Draft"}
-              </button>
-            </div>
-            {draftCandidates.length > 0 && (
-              <p className="text-xs text-gray-600 dark:text-gray-400 mt-2">
-                Candidates found: {draftCandidates.map((value) => value.toFixed(4)).join(", ")} PHP/kWh
-              </p>
-            )}
-          </div>
-
-          <div className="pt-1">
-            <button
-              onClick={handleSaveBilling}
-              disabled={isSavingBilling}
-              className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              <Save className="w-4 h-4" />
-              {isSavingBilling ? "Saving..." : "Save Billing Settings"}
-            </button>
-          </div>
-        </div>
-
-        <div className="mt-6">
-          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3">Historical Monthly Rates</h3>
-          <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
-            <table className="w-full min-w-[680px]">
-              <thead className="bg-gray-100 dark:bg-gray-800">
-                <tr>
-                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 dark:text-gray-300">Month</th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 dark:text-gray-300">Rate (PHP/kWh)</th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 dark:text-gray-300">Source</th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 dark:text-gray-300">Updated</th>
-                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-700 dark:text-gray-300">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sortedRateHistory.length === 0 ? (
-                  <tr>
-                    <td colSpan={5} className="px-3 py-4 text-sm text-gray-500 dark:text-gray-400">No monthly rates yet.</td>
-                  </tr>
-                ) : (
-                  sortedRateHistory.map((row) => (
-                    <tr key={row.month} className="border-t border-gray-200 dark:border-gray-700">
-                      <td className="px-3 py-2 text-sm text-gray-900 dark:text-gray-100">{getMonthLabel(row.month)}</td>
-                      <td className="px-3 py-2 text-sm text-gray-900 dark:text-gray-100">{row.ratePerKwh.toFixed(4)}</td>
-                      <td className="px-3 py-2 text-sm text-gray-700 dark:text-gray-300">{row.source || "manual"}</td>
-                      <td className="px-3 py-2 text-sm text-gray-700 dark:text-gray-300">{formatMonthTimestamp(row.updatedAt)}</td>
-                      <td className="px-3 py-2 text-right">
-                        <div className="inline-flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => handleMonthChange(row.month)}
-                            className="px-2 py-1 text-xs rounded border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
-                          >
-                            Edit
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteRate(row.month)}
-                            disabled={isDeletingMonth === row.month}
-                            className="px-2 py-1 text-xs rounded border border-red-300 dark:border-red-700 text-red-700 dark:text-red-300 hover:bg-red-50 dark:hover:bg-red-950/30 inline-flex items-center gap-1"
-                          >
-                            <Trash2 className="w-3 h-3" />
-                            {isDeletingMonth === row.month ? "Deleting..." : "Delete"}
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+          
+          <button
+            onClick={handleSaveMonthlyRate}
+            className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-xl font-medium active:bg-blue-700 transition-colors min-h-[48px]"
+          >
+            <Save className="w-4 h-4" />
+            Save Rate
+          </button>
         </div>
       </div>
-
-      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 p-4 sm:p-6">
-        <div className="flex items-center gap-2 mb-6">
-          <Tag className="w-5 h-5 text-gray-700 dark:text-gray-300" />
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Node Settings</h2>
+      
+      {/* Historical Monthly Rates */}
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-base font-semibold text-gray-900">Rate History</h3>
+          <span className="text-xs text-gray-500">{monthlyRates.length} records</span>
         </div>
-
-        <div className="space-y-6">
-          <div className="p-4 bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-900 rounded-lg">
-            <h3 className="font-medium text-gray-900 dark:text-gray-100 mb-4">Node 1 (ESP32-NODE-001)</h3>
+        
+        {monthlyRates.length === 0 ? (
+          <div className="text-center py-8 text-gray-500">
+            <DollarSign className="w-12 h-12 mx-auto mb-2 text-gray-300" />
+            <p className="text-sm">No rate history available</p>
+            <p className="text-xs mt-1">Add a rate to get started</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {monthlyRates.map((rate) => {
+              const monthLabel = new Date(rate.month + '-01').toLocaleDateString('en-PH', { 
+                month: 'long', 
+                year: 'numeric' 
+              });
+              
+              return (
+                <div key={rate.month} className="p-3 bg-gray-50 border border-gray-200 rounded-xl">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-sm font-semibold text-gray-900">{monthLabel}</span>
+                        <span className={`px-2 py-0.5 text-xs rounded-full ${
+                          rate.source === 'manual' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700'
+                        }`}>
+                          {rate.source}
+                        </span>
+                      </div>
+                      <p className="text-xl font-bold text-blue-600">₱{rate.rate.toFixed(2)}/kWh</p>
+                    </div>
+                    
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => handleToggleVerified(rate.month)}
+                        className="w-10 h-10 flex items-center justify-center rounded-lg active:bg-gray-200 transition-colors"
+                      >
+                        {rate.verified ? (
+                          <CheckCircle2 className="w-5 h-5 text-green-600" />
+                        ) : (
+                          <XCircle className="w-5 h-5 text-gray-400" />
+                        )}
+                      </button>
+                      
+                      <button
+                        onClick={() => handleDeleteRate(rate.month)}
+                        className="w-10 h-10 flex items-center justify-center rounded-lg active:bg-red-100 transition-colors min-h-[44px] min-w-[44px]"
+                      >
+                        <Trash2 className="w-5 h-5 text-red-600" />
+                      </button>
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center justify-between text-xs text-gray-500 pt-2 border-t border-gray-200">
+                    <span>Updated: {rate.lastUpdated}</span>
+                    <span>{rate.verified ? 'Verified' : 'Unverified'}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+      
+      {/* Node Settings */}
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
+        <div className="flex items-center gap-2 mb-4">
+          <div className="w-10 h-10 bg-purple-100 rounded-xl flex items-center justify-center">
+            <Tag className="w-5 h-5 text-purple-600" />
+          </div>
+          <h2 className="text-lg font-semibold text-gray-900">Devices</h2>
+        </div>
+        
+        <div className="space-y-4">
+          {/* Node 1 */}
+          <div className="p-4 bg-purple-50 border border-purple-200 rounded-xl">
+            <h3 className="text-sm font-semibold text-gray-900 mb-3">Node 1</h3>
             <div className="space-y-3">
               <div>
-                <label htmlFor="node1-label" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Appliance Label
+                <label htmlFor="node1-label" className="block text-xs font-medium text-gray-700 mb-1.5">
+                  Device Name
                 </label>
                 <input
                   id="node1-label"
                   type="text"
                   value={node1Label}
-                  onChange={(event) => setNode1Label(event.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 bg-white dark:bg-gray-950 dark:text-gray-100"
-                  placeholder="e.g., Node 1"
+                  onChange={(e) => setNode1Label(e.target.value)}
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 min-h-[44px]"
+                  placeholder="e.g., Refrigerator"
                 />
               </div>
-
+              
               <div>
-                <label htmlFor="node1-threshold" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Power Threshold
+                <label htmlFor="node1-threshold" className="block text-xs font-medium text-gray-700 mb-1.5">
+                  Alert Threshold (Watts)
                 </label>
-                <div className="relative min-w-0">
-                  <input
-                    id="node1-threshold"
-                    type="number"
-                    min="0"
-                    value={node1Threshold}
-                    onChange={(event) => setNode1Threshold(event.target.value)}
-                    className="w-full pr-10 px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 bg-white dark:bg-gray-950 dark:text-gray-100"
-                    placeholder="500"
-                  />
-                  <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-500 dark:text-gray-400">W</span>
-                </div>
+                <input
+                  id="node1-threshold"
+                  type="number"
+                  min="0"
+                  value={node1Threshold}
+                  onChange={(e) => setNode1Threshold(e.target.value)}
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 min-h-[44px]"
+                  placeholder="500"
+                />
               </div>
             </div>
           </div>
-
-          <div className="p-4 bg-orange-50 dark:bg-orange-950/40 border border-orange-200 dark:border-orange-900 rounded-lg">
-            <h3 className="font-medium text-gray-900 dark:text-gray-100 mb-4">Node 2 (ESP32-NODE-002)</h3>
+          
+          {/* Node 2 */}
+          <div className="p-4 bg-orange-50 border border-orange-200 rounded-xl">
+            <h3 className="text-sm font-semibold text-gray-900 mb-3">Node 2</h3>
             <div className="space-y-3">
               <div>
-                <label htmlFor="node2-label" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Appliance Label
+                <label htmlFor="node2-label" className="block text-xs font-medium text-gray-700 mb-1.5">
+                  Device Name
                 </label>
                 <input
                   id="node2-label"
                   type="text"
                   value={node2Label}
-                  onChange={(event) => setNode2Label(event.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 bg-white dark:bg-gray-950 dark:text-gray-100"
-                  placeholder="e.g., Node 2"
+                  onChange={(e) => setNode2Label(e.target.value)}
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 min-h-[44px]"
+                  placeholder="e.g., Air Conditioner"
                 />
               </div>
-
+              
               <div>
-                <label htmlFor="node2-threshold" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Power Threshold
+                <label htmlFor="node2-threshold" className="block text-xs font-medium text-gray-700 mb-1.5">
+                  Alert Threshold (Watts)
                 </label>
-                <div className="relative min-w-0">
-                  <input
-                    id="node2-threshold"
-                    type="number"
-                    min="0"
-                    value={node2Threshold}
-                    onChange={(event) => setNode2Threshold(event.target.value)}
-                    className="w-full pr-10 px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 bg-white dark:bg-gray-950 dark:text-gray-100"
-                    placeholder="800"
-                  />
-                  <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-500 dark:text-gray-400">W</span>
-                </div>
+                <input
+                  id="node2-threshold"
+                  type="number"
+                  min="0"
+                  value={node2Threshold}
+                  onChange={(e) => setNode2Threshold(e.target.value)}
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 min-h-[44px]"
+                  placeholder="800"
+                />
               </div>
             </div>
           </div>
-
-          <div className="p-4 bg-cyan-50 dark:bg-cyan-950/40 border border-cyan-200 dark:border-cyan-900 rounded-lg">
-            <h3 className="font-medium text-gray-900 dark:text-gray-100 mb-4">Node 3 (ESP32-NODE-003)</h3>
+          
+          {/* Node 3 */}
+          <div className="p-4 bg-cyan-50 border border-cyan-200 rounded-xl">
+            <h3 className="text-sm font-semibold text-gray-900 mb-3">Node 3</h3>
             <div className="space-y-3">
               <div>
-                <label htmlFor="node3-label" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Appliance Label
+                <label htmlFor="node3-label" className="block text-xs font-medium text-gray-700 mb-1.5">
+                  Device Name
                 </label>
                 <input
                   id="node3-label"
                   type="text"
                   value={node3Label}
-                  onChange={(event) => setNode3Label(event.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 bg-white dark:bg-gray-950 dark:text-gray-100"
-                  placeholder="e.g., Node 3"
+                  onChange={(e) => setNode3Label(e.target.value)}
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 min-h-[44px]"
+                  placeholder="e.g., Water Heater"
                 />
               </div>
-
+              
               <div>
-                <label htmlFor="node3-threshold" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Power Threshold
+                <label htmlFor="node3-threshold" className="block text-xs font-medium text-gray-700 mb-1.5">
+                  Alert Threshold (Watts)
                 </label>
-                <div className="relative min-w-0">
-                  <input
-                    id="node3-threshold"
-                    type="number"
-                    min="0"
-                    value={node3Threshold}
-                    onChange={(event) => setNode3Threshold(event.target.value)}
-                    className="w-full pr-10 px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 bg-white dark:bg-gray-950 dark:text-gray-100"
-                    placeholder="600"
-                  />
-                  <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-500 dark:text-gray-400">W</span>
-                </div>
+                <input
+                  id="node3-threshold"
+                  type="number"
+                  min="0"
+                  value={node3Threshold}
+                  onChange={(e) => setNode3Threshold(e.target.value)}
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 min-h-[44px]"
+                  placeholder="600"
+                />
               </div>
             </div>
           </div>
-
-          <div className="pt-4">
-            <button
-              onClick={handleSaveNodes}
-              disabled={isSavingNodes}
-              className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              <Save className="w-4 h-4" />
-              {isSavingNodes ? "Saving..." : "Save Node Settings"}
-            </button>
-          </div>
+          
+          <button
+            onClick={handleSaveNodes}
+            className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-xl font-medium active:bg-blue-700 transition-colors min-h-[48px]"
+          >
+            <Save className="w-4 h-4" />
+            Save Devices
+          </button>
         </div>
       </div>
-
-      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 p-4 sm:p-6">
-        <div className="flex items-center gap-2 mb-6">
-          <Bell className="w-5 h-5 text-gray-700 dark:text-gray-300" />
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Insight Settings</h2>
+      
+      {/* Insight Settings */}
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
+        <div className="flex items-center gap-2 mb-4">
+          <div className="w-10 h-10 bg-green-100 rounded-xl flex items-center justify-center">
+            <Bell className="w-5 h-5 text-green-600" />
+          </div>
+          <h2 className="text-lg font-semibold text-gray-900">Insights</h2>
         </div>
-
+        
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Comparison Window</label>
-            <div className="px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">
-              <p className="text-sm text-gray-900 dark:text-gray-100">Selected Month vs Previous Full Month (Fixed)</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Compares selected month consumption with the immediately preceding month.</p>
-            </div>
-          </div>
-
-          <div>
-            <label htmlFor="timezone" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            <label htmlFor="timezone" className="block text-sm font-medium text-gray-700 mb-2">
               <div className="flex items-center gap-2">
                 <MapPin className="w-4 h-4" />
                 Timezone
@@ -534,68 +415,32 @@ export default function Settings() {
             <select
               id="timezone"
               value={timezone}
-              onChange={(event) => setTimezone(event.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-950 dark:text-gray-100"
+              onChange={(e) => setTimezone(e.target.value)}
+              className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white min-h-[48px]"
             >
-              <option value="Asia/Manila">Asia/Manila (PHT, UTC+8)</option>
+              <option value="Asia/Manila">PHT (UTC+8)</option>
               <option value="UTC">UTC (GMT)</option>
-              <option value="America/New_York">America/New York (EST)</option>
-              <option value="Europe/London">Europe/London (GMT)</option>
+              <option value="America/New_York">EST (UTC-5)</option>
+              <option value="Europe/London">GMT</option>
             </select>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">All timestamps and monthly calculations use this timezone</p>
           </div>
-
-          <div className="pt-4">
-            <button
-              onClick={handleSaveInsight}
-              disabled={isSavingInsight}
-              className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              <Save className="w-4 h-4" />
-              {isSavingInsight ? "Saving..." : "Save Insight Settings"}
-            </button>
-          </div>
+          
+          <button
+            onClick={handleSaveInsight}
+            className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-xl font-medium active:bg-blue-700 transition-colors min-h-[48px]"
+          >
+            <Save className="w-4 h-4" />
+            Save Insights
+          </button>
         </div>
       </div>
-
-      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 p-4 sm:p-6">
-        <div className="flex items-center gap-2 mb-6">
-          <Palette className="w-5 h-5 text-gray-700 dark:text-gray-300" />
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Appearance & API</h2>
-        </div>
-
-        <div className="space-y-4">
-          <div>
-            <label htmlFor="theme-mode" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Theme Mode
-            </label>
-            <select
-              id="theme-mode"
-              value={themeMode}
-              onChange={(event) => setThemeMode(event.target.value as ThemeMode)}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-950 dark:text-gray-100"
-            >
-              <option value="light">Light</option>
-              <option value="dark">Dark</option>
-              <option value="system">System</option>
-            </select>
-          </div>
-
-          <div className="px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">
-            <p className="text-sm text-gray-700 dark:text-gray-300">Current API Base</p>
-            <p className="text-sm font-medium text-gray-900 dark:text-gray-100 break-all">{API_BASE}</p>
-          </div>
-
-          <div className="pt-4">
-            <button
-              onClick={handleSaveAppearance}
-              className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              <Save className="w-4 h-4" />
-              Save Appearance
-            </button>
-          </div>
-        </div>
+      
+      {/* Future Cloud Sync Notice */}
+      <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4">
+        <p className="text-sm text-blue-800 font-medium mb-1">💡 Settings Management</p>
+        <p className="text-xs text-blue-700">
+          Currently using local storage. Cloud sync capability will be available in future updates.
+        </p>
       </div>
     </div>
   );
