@@ -446,13 +446,13 @@ export default function Reports() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       <div>
         <h1 className="text-3xl font-semibold text-gray-900 dark:text-gray-100">Reports & Export</h1>
         <p className="text-gray-600 dark:text-gray-400 mt-1">Generate and export monthly energy consumption reports</p>
       </div>
 
-      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 p-6">
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 p-4 sm:p-6">
         <div className="flex flex-wrap items-center gap-2 mb-6">
           <FileText className="w-5 h-5 text-gray-700 dark:text-gray-300" />
           <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Export Settings</h2>
@@ -567,7 +567,7 @@ export default function Reports() {
       </div>
 
       {!isLoading && (
-        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 p-6">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 p-4 sm:p-6">
           <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-4">Monthly Snapshot</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="p-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
@@ -584,20 +584,22 @@ export default function Reports() {
             </div>
           </div>
 
-          <div className="mt-6 h-80">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={chartDataWithTotals}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="date" />
-                <YAxis />
-                <Tooltip formatter={(value: number | string) => `${Number(value).toFixed(3)} kWh`} />
-                <Legend content={renderCompactLegend} />
-                <Line type="monotone" dataKey="node1" stroke="#7c3aed" name={`Node 1 (${nodeSummaries[0]?.label || "Node 1"})`} strokeWidth={2} dot={false} />
-                <Line type="monotone" dataKey="node2" stroke="#ea580c" name={`Node 2 (${nodeSummaries[1]?.label || "Node 2"})`} strokeWidth={2} dot={false} />
-                <Line type="monotone" dataKey="node3" stroke="#0891b2" name={`Node 3 (${nodeSummaries[2]?.label || "Node 3"})`} strokeWidth={2} dot={false} />
-                <Line type="monotone" dataKey="total" stroke="#facc15" name="Total Daily kWh" strokeWidth={3} dot={false} />
-              </LineChart>
-            </ResponsiveContainer>
+          <div className="mt-6 h-80 overflow-x-auto">
+            <div className="h-full min-w-[880px] sm:min-w-0">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={chartDataWithTotals}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#94a3b8" strokeOpacity={0.35} />
+                  <XAxis dataKey="date" tick={{ fontSize: 11 }} interval={0} />
+                  <YAxis />
+                  <Tooltip formatter={(value: number | string) => `${Number(value).toFixed(3)} kWh`} />
+                  <Legend content={renderCompactLegend} />
+                  <Line type="monotone" dataKey="node1" stroke="#7c3aed" name={`Node 1 (${nodeSummaries[0]?.label || "Node 1"})`} strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="node2" stroke="#ea580c" name={`Node 2 (${nodeSummaries[1]?.label || "Node 2"})`} strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="node3" stroke="#0891b2" name={`Node 3 (${nodeSummaries[2]?.label || "Node 3"})`} strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="total" stroke="#eab308" name="Total Daily kWh" strokeWidth={3} dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
           </div>
         </div>
       )}

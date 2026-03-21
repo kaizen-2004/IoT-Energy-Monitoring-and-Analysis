@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
+  ChevronLeft,
+  ChevronRight,
   Minus,
   RefreshCw,
   TrendingDown,
@@ -26,6 +28,7 @@ import {
   fetchAppSettings,
   fetchDashboardData,
   getMonthLabel,
+  getPHTDayKey,
   getPHTTime,
   type Alert,
   type DailyData,
@@ -37,6 +40,20 @@ type LegendPayloadItem = {
   color?: string;
   value?: string | number;
 };
+
+type ChartView = "monthly" | "weekly";
+
+type ChartRow = DailyData & {
+  total: number;
+};
+
+function formatNodeHeading(nodeId: string, index: number) {
+  const numericMatch = nodeId.match(/(\d+)/);
+  if (numericMatch) {
+    return `Node ${Number(numericMatch[1])}`;
+  }
+  return `Node ${index + 1}`;
+}
 
 function toShortLegendLabel(value: string) {
   if (value.startsWith("Node 1")) return "Node 1";
@@ -69,11 +86,72 @@ function renderCompactLegend(props: { payload?: LegendPayloadItem[] }) {
   );
 }
 
+function parseDayKey(dayKey: string) {
+  const [yearText, monthText, dayText] = dayKey.split("-");
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  return new Date(Date.UTC(year, month - 1, day));
+}
+
+function toDayKey(date: Date) {
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(
+    date.getUTCDate()
+  ).padStart(2, "0")}`;
+}
+
+function getWeekStartKey(dayKey: string) {
+  const date = parseDayKey(dayKey);
+  const utcDay = date.getUTCDay();
+  const mondayOffset = utcDay === 0 ? 6 : utcDay - 1;
+  const start = new Date(date);
+  start.setUTCDate(start.getUTCDate() - mondayOffset);
+  return toDayKey(start);
+}
+
+function formatWeekRangeLabel(rows: ChartRow[]) {
+  if (rows.length === 0) {
+    return "Week";
+  }
+
+  const startDate = parseDayKey(rows[0].dayKey);
+  const endDate = parseDayKey(rows[rows.length - 1].dayKey);
+  const formatter = new Intl.DateTimeFormat("en-PH", {
+    timeZone: "UTC",
+    month: "short",
+    day: "numeric"
+  });
+  return `${formatter.format(startDate)} - ${formatter.format(endDate)}`;
+}
+
+function formatWeeklyTick(dayKey: string) {
+  const date = parseDayKey(dayKey);
+  return new Intl.DateTimeFormat("en-PH", {
+    timeZone: "UTC",
+    weekday: "short",
+    day: "numeric"
+  }).format(date);
+}
+
+function shiftMonth(month: string, offset: number) {
+  const [yearText, monthText] = month.split("-");
+  const year = Number(yearText);
+  const monthIndex = Number(monthText) - 1;
+  const date = new Date(Date.UTC(year, monthIndex, 1));
+  date.setUTCMonth(date.getUTCMonth() + offset);
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
 export default function Dashboard() {
   const [lastUpdated, setLastUpdated] = useState<string>(getPHTTime());
   const [isConnected, setIsConnected] = useState<boolean>(true);
+  const [isMobile, setIsMobile] = useState<boolean>(
+    typeof window !== "undefined" ? window.matchMedia("(max-width: 640px)").matches : false
+  );
   const [refreshInterval, setRefreshInterval] = useState<number>(30);
   const [selectedMonth, setSelectedMonth] = useState<string>(defaultMonth());
+  const [chartView, setChartView] = useState<ChartView>("monthly");
+  const [selectedWeekKey, setSelectedWeekKey] = useState<string>("");
   const [availableMonths, setAvailableMonths] = useState<string[]>([defaultMonth()]);
   const [chartData, setChartData] = useState<DailyData[]>([]);
   const [nodeSummaries, setNodeSummaries] = useState<NodeSummary[]>([]);
@@ -98,6 +176,17 @@ export default function Dashboard() {
       .catch(() => {
         setSelectedMonth(defaultMonth());
       });
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const media = window.matchMedia("(max-width: 640px)");
+    const update = () => setIsMobile(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
   }, []);
 
   const loadData = useCallback(async () => {
@@ -136,7 +225,7 @@ export default function Dashboard() {
     return () => window.clearInterval(intervalId);
   }, [loadData, refreshInterval]);
 
-  const chartDataWithTotals = useMemo(
+  const chartRows = useMemo<ChartRow[]>(
     () =>
       chartData.map((row) => ({
         ...row,
@@ -145,9 +234,64 @@ export default function Dashboard() {
     [chartData]
   );
 
-  const hasChartData = chartDataWithTotals.some(
+  const weeklyBuckets = useMemo(() => {
+    const map = new Map<string, ChartRow[]>();
+    chartRows.forEach((row) => {
+      const weekKey = getWeekStartKey(row.dayKey);
+      if (!map.has(weekKey)) {
+        map.set(weekKey, []);
+      }
+      map.get(weekKey)?.push(row);
+    });
+
+    return [...map.entries()]
+      .map(([key, rows]) => ({
+        key,
+        rows: rows.sort((a, b) => a.dayKey.localeCompare(b.dayKey)),
+        label: formatWeekRangeLabel(rows.sort((a, b) => a.dayKey.localeCompare(b.dayKey)))
+      }))
+      .sort((a, b) => b.key.localeCompare(a.key));
+  }, [chartRows]);
+
+  useEffect(() => {
+    if (weeklyBuckets.length === 0) {
+      setSelectedWeekKey("");
+      return;
+    }
+
+    const weekExists = weeklyBuckets.some((bucket) => bucket.key === selectedWeekKey);
+    if (weekExists) {
+      return;
+    }
+
+    const todayKey = getPHTDayKey(new Date());
+    const containingToday = weeklyBuckets.find((bucket) =>
+      bucket.rows.some((row) => row.dayKey === todayKey)
+    );
+    const firstWithData = weeklyBuckets.find((bucket) =>
+      bucket.rows.some((row) => row.total > 0)
+    );
+    setSelectedWeekKey(containingToday?.key || firstWithData?.key || weeklyBuckets[0].key);
+  }, [weeklyBuckets, selectedWeekKey]);
+
+  const selectedWeekRows = useMemo(() => {
+    if (!selectedWeekKey) return [];
+    const bucket = weeklyBuckets.find((item) => item.key === selectedWeekKey);
+    return bucket?.rows || [];
+  }, [weeklyBuckets, selectedWeekKey]);
+
+  const renderedChartData = chartView === "weekly" ? selectedWeekRows : chartRows;
+  const hasChartData = renderedChartData.some(
     (row) => row.node1 > 0 || row.node2 > 0 || row.node3 > 0 || row.total > 0
   );
+  const chartMinWidth = useMemo(() => {
+    const pointCount = Math.max(renderedChartData.length, chartView === "monthly" ? 31 : 7);
+    if (chartView === "monthly") {
+      return isMobile ? Math.max(980, pointCount * 34) : 860;
+    }
+    return isMobile ? Math.max(600, pointCount * 80) : 640;
+  }, [chartView, renderedChartData.length, isMobile]);
+
   const totalTodayKWh = nodeSummaries.reduce((sum, node) => sum + node.currentDayKWh, 0);
   const totalTodayCost = nodeSummaries.reduce((sum, node) => sum + node.currentDayEstimatedCost, 0);
 
@@ -179,12 +323,12 @@ export default function Dashboard() {
   const InsightIcon = insightIcon;
 
   return (
-    <div className="space-y-6">
-      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 p-6">
+    <div className="space-y-4 sm:space-y-6">
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 p-4 sm:p-6">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
           <div>
-            <h1 className="text-2xl sm:text-3xl leading-tight break-words font-semibold text-gray-900 dark:text-gray-100">IoT Household Energy Monitoring Dashboard</h1>
-            <p className="text-gray-600 dark:text-gray-400 mt-1">Philippine context • Unit: kWh • Timezone: PHT (UTC+8)</p>
+            <h1 className="text-3xl sm:text-3xl leading-tight break-words font-semibold text-gray-900 dark:text-gray-100">IoT Household Energy Monitoring Dashboard</h1>
+            <p className="text-sm sm:text-base text-gray-600 dark:text-gray-400 mt-1">Philippine context • Unit: kWh • Timezone: PHT (UTC+8)</p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2 sm:gap-3 min-w-0">
@@ -207,29 +351,49 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 p-6">
-        <div className="flex flex-col lg:flex-row items-start lg:items-center gap-4">
-          <div className="flex flex-wrap items-center gap-3 flex-1 min-w-0">
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 p-4 sm:p-6">
+        <div className="space-y-4">
+          <div>
             <label htmlFor="month-selector" className="text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">
-              Billing Month:
+              Billing Month
             </label>
-            <select
-              id="month-selector"
-              value={selectedMonth}
-              onChange={(event) => setSelectedMonth(event.target.value)}
-              className="w-full sm:w-56 px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-950 dark:text-gray-100"
-            >
-              {availableMonths.map((month) => (
-                <option key={month} value={month}>
-                  {getMonthLabel(month)}
-                </option>
-              ))}
-            </select>
+            <div className="mt-2 grid grid-cols-[42px_1fr_42px] gap-2 min-w-0">
+              <button
+                type="button"
+                onClick={() => setSelectedMonth(shiftMonth(selectedMonth, -1))}
+                className="inline-flex items-center justify-center h-10 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
+                aria-label="Previous month"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <select
+                id="month-selector"
+                value={selectedMonth}
+                onChange={(event) => setSelectedMonth(event.target.value)}
+                className="w-full min-w-0 px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-950 dark:text-gray-100"
+              >
+                {availableMonths.map((month) => (
+                  <option key={month} value={month}>
+                    {getMonthLabel(month)}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => setSelectedMonth(shiftMonth(selectedMonth, 1))}
+                className="inline-flex items-center justify-center h-10 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
+                aria-label="Next month"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
 
-            <label htmlFor="refresh-interval" className="text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap lg:ml-3">
-              Refresh Interval:
+          <div className="grid grid-cols-1 sm:grid-cols-[auto_7.25rem_auto] gap-3 sm:items-center">
+            <label htmlFor="refresh-interval" className="text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">
+              Refresh Interval
             </label>
-            <div className="relative w-28">
+            <div className="relative w-full">
               <input
                 id="refresh-interval"
                 type="number"
@@ -244,14 +408,14 @@ export default function Dashboard() {
 
             <button
               onClick={loadData}
-              className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
             >
               <RefreshCw className="w-4 h-4" />
               Refresh Now
             </button>
           </div>
 
-          <div className="w-full lg:w-auto text-sm text-gray-600 dark:text-gray-400 break-all">
+          <div className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 break-all">
             Data Source: {API_BASE}
           </div>
         </div>
@@ -331,10 +495,10 @@ export default function Dashboard() {
         <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-4">Individual Nodes (Live Daily)</h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {nodeSummaries.map((node, index) => (
-            <div key={node.applianceId} className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 p-6">
+            <div key={node.applianceId} className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 p-4 sm:p-6">
               <div className="flex items-center justify-between mb-4">
                 <div>
-                  <h3 className="font-semibold text-gray-900 dark:text-gray-100">Node {node.nodeId}</h3>
+                  <h3 className="font-semibold text-gray-900 dark:text-gray-100">{formatNodeHeading(node.nodeId, index)}</h3>
                   <p className="text-sm text-gray-600 dark:text-gray-400">{node.label}</p>
                 </div>
                 <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
@@ -381,76 +545,142 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 p-6">
-        <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-4">Monthly Energy Profile (kWh)</h2>
-        <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">Daily node usage for {getMonthLabel(selectedMonth)} with total trend line</p>
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 p-4 sm:p-6">
+        <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4 mb-6">
+          <div>
+            <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">Energy Profile (kWh)</h2>
+            <p className="text-sm text-gray-600 dark:text-gray-400">
+              {chartView === "monthly"
+                ? `Daily node usage for ${getMonthLabel(selectedMonth)} with total trend line`
+                : "Weekly calendar view for the selected month"}
+            </p>
+          </div>
 
-        <div className="h-80 lg:h-96">
-          {hasChartData ? (
-            <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart
-                data={chartDataWithTotals}
-                margin={{ top: 24, right: 20, left: 12, bottom: 20 }}
-                barCategoryGap="26%"
-                barGap={6}
+          <div className="flex flex-col gap-3 w-full xl:w-auto">
+            <div className="flex items-center gap-2">
+              <label htmlFor="chart-view" className="text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                Chart View
+              </label>
+              <select
+                id="chart-view"
+                value={chartView}
+                onChange={(event) => setChartView(event.target.value as ChartView)}
+                className="w-full sm:w-40 px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-950 dark:text-gray-100"
               >
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="date" tick={{ fontSize: 12 }} tickMargin={10} />
-                <YAxis
-                  label={{ value: "kWh", angle: -90, position: "insideLeft" }}
-                  tick={{ fontSize: 12 }}
-                  tickMargin={8}
-                />
-                <Tooltip
-                  cursor={{ fill: "rgba(148, 163, 184, 0.14)" }}
-                  contentStyle={{ backgroundColor: "#fff", border: "1px solid #e5e7eb", borderRadius: "10px" }}
-                  labelFormatter={(label: string | number) => `Day ${label}`}
-                  formatter={(value: number | string, name: string) => [
-                    `${Number(value).toFixed(3)} kWh`,
-                    name
-                  ]}
-                />
-                <Legend
-                  verticalAlign="top"
-                  height={54}
-                  content={renderCompactLegend}
-                />
-                <Bar
-                  dataKey="node1"
-                  name={`Node 1 (${nodeSummaries[0]?.label || "Node 1"})`}
-                  fill="#7c3aed"
-                  radius={[4, 4, 0, 0]}
-                  barSize={14}
-                />
-                <Bar
-                  dataKey="node2"
-                  name={`Node 2 (${nodeSummaries[1]?.label || "Node 2"})`}
-                  fill="#ea580c"
-                  radius={[4, 4, 0, 0]}
-                  barSize={14}
-                />
-                <Bar
-                  dataKey="node3"
-                  name={`Node 3 (${nodeSummaries[2]?.label || "Node 3"})`}
-                  fill="#0891b2"
-                  radius={[4, 4, 0, 0]}
-                  barSize={14}
-                />
-                <Line
-                  key="total-line"
-                  type="linear"
-                  dataKey="total"
-                  stroke="#facc15"
-                  strokeWidth={3}
-                  name="Total Daily kWh"
-                  dot={{ r: 2.5, fill: "#facc15", stroke: "#fef3c7", strokeWidth: 1 }}
-                  activeDot={{ r: 4.5, fill: "#facc15", stroke: "#fef3c7", strokeWidth: 2 }}
-                />
-              </ComposedChart>
-            </ResponsiveContainer>
+                <option value="monthly">Monthly</option>
+                <option value="weekly">Weekly</option>
+              </select>
+            </div>
+
+            {chartView === "weekly" && (
+              <div className="flex items-center gap-2">
+                <label htmlFor="week-selector" className="text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                  Week
+                </label>
+                <select
+                  id="week-selector"
+                  value={selectedWeekKey}
+                  onChange={(event) => setSelectedWeekKey(event.target.value)}
+                  className="w-full sm:w-48 px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-950 dark:text-gray-100"
+                >
+                  {weeklyBuckets.map((bucket) => (
+                    <option key={bucket.key} value={bucket.key}>
+                      {bucket.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="h-[22rem] sm:h-[24rem] lg:h-96 overflow-x-auto">
+          {isMobile && (
+            <p className="text-xs text-gray-500 dark:text-gray-400 mb-2 px-1">
+              Swipe horizontally to view all chart days.
+            </p>
+          )}
+          {hasChartData ? (
+            <div className="h-full w-full" style={{ minWidth: chartMinWidth }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart
+                  data={renderedChartData}
+                  margin={{ top: 24, right: 16, left: isMobile ? 4 : 12, bottom: 20 }}
+                  barCategoryGap="26%"
+                  barGap={6}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="#94a3b8" strokeOpacity={0.35} />
+                  <XAxis
+                    dataKey={chartView === "weekly" ? "dayKey" : "date"}
+                    tick={{ fontSize: isMobile ? 10 : 12 }}
+                    tickMargin={10}
+                    interval={chartView === "monthly" ? 0 : 0}
+                    tickFormatter={(value: string | number) =>
+                      chartView === "weekly"
+                        ? formatWeeklyTick(String(value))
+                        : String(value)
+                    }
+                  />
+                  <YAxis
+                    label={{ value: "kWh", angle: -90, position: "insideLeft" }}
+                    tick={{ fontSize: isMobile ? 10 : 12 }}
+                    tickMargin={8}
+                  />
+                  <Tooltip
+                    cursor={{ fill: "rgba(148, 163, 184, 0.14)" }}
+                    contentStyle={{ backgroundColor: "#fff", border: "1px solid #e5e7eb", borderRadius: "10px" }}
+                    labelFormatter={(label: string | number) =>
+                      chartView === "weekly"
+                        ? `Day ${formatWeeklyTick(String(label))}`
+                        : `Day ${label}`
+                    }
+                    formatter={(value: number | string, name: string) => [
+                      `${Number(value).toFixed(3)} kWh`,
+                      name
+                    ]}
+                  />
+                  <Legend
+                    verticalAlign="top"
+                    height={isMobile ? 84 : 56}
+                    content={renderCompactLegend}
+                  />
+                  <Bar
+                    dataKey="node1"
+                    name={`Node 1 (${nodeSummaries[0]?.label || "Node 1"})`}
+                    fill="#7c3aed"
+                    radius={[4, 4, 0, 0]}
+                    barSize={isMobile ? 11 : 14}
+                  />
+                  <Bar
+                    dataKey="node2"
+                    name={`Node 2 (${nodeSummaries[1]?.label || "Node 2"})`}
+                    fill="#ea580c"
+                    radius={[4, 4, 0, 0]}
+                    barSize={isMobile ? 11 : 14}
+                  />
+                  <Bar
+                    dataKey="node3"
+                    name={`Node 3 (${nodeSummaries[2]?.label || "Node 3"})`}
+                    fill="#0891b2"
+                    radius={[4, 4, 0, 0]}
+                    barSize={isMobile ? 11 : 14}
+                  />
+                  <Line
+                    key="total-line"
+                    type="linear"
+                    dataKey="total"
+                    stroke="#eab308"
+                    strokeWidth={isMobile ? 2.5 : 3}
+                    name="Total Daily kWh"
+                    dot={{ r: 2.5, fill: "#eab308", stroke: "#fef3c7", strokeWidth: 1 }}
+                    activeDot={{ r: 4.5, fill: "#eab308", stroke: "#fef3c7", strokeWidth: 2 }}
+                  />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
           ) : (
             <div className="h-full flex items-center justify-center rounded-lg border border-dashed border-gray-300 dark:border-gray-700 text-sm text-gray-600 dark:text-gray-400">
-              No readings found for {getMonthLabel(selectedMonth)}. Data will appear after ingest starts.
+              No readings found for this chart selection. Data will appear after ingest starts.
             </div>
           )}
         </div>

@@ -28,17 +28,27 @@ export default function Layout() {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
       {/* Top Navigation */}
-      <nav className="bg-white dark:bg-gray-900 shadow-sm border-b border-gray-200 dark:border-gray-800">
+      <nav className="sticky top-0 z-40 bg-white/95 dark:bg-gray-900/95 backdrop-blur shadow-sm border-b border-gray-200 dark:border-gray-800">
         <div className="w-full px-4 sm:px-6 lg:px-8">
-          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 py-3 sm:py-0 sm:h-16">
+          <div className="flex items-center justify-between py-3 sm:h-16 sm:py-0">
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
                 <span className="text-white font-bold">⚡</span>
               </div>
               <span className="text-xl font-semibold text-gray-900 dark:text-gray-100">Energy Monitor</span>
             </div>
+
+            <button
+              type="button"
+              onClick={handleToggleTheme}
+              className="sm:hidden inline-flex items-center justify-center w-10 h-10 rounded-lg text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+              aria-label="Toggle theme"
+              title={themeMode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            >
+              {themeMode === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+            </button>
             
-            <div className="w-full sm:w-auto flex flex-wrap items-center gap-2">
+            <div className="hidden sm:flex w-full sm:w-auto flex-wrap items-center gap-2">
               {navItems.map((item) => {
                 const Icon = item.icon;
                 const isActive = location.pathname === item.path;
@@ -73,13 +83,48 @@ export default function Layout() {
           </div>
         </div>
       </nav>
+
+      <nav className="sm:hidden fixed bottom-0 inset-x-0 z-50 border-t border-gray-200 dark:border-gray-800 bg-white/95 dark:bg-gray-900/95 backdrop-blur">
+        <div className="grid grid-cols-4 px-1 py-1.5">
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = location.pathname === item.path;
+
+            return (
+              <Link
+                key={item.path}
+                to={item.path}
+                className={`inline-flex flex-col items-center justify-center gap-1 rounded-lg py-2 ${
+                  isActive
+                    ? 'bg-blue-50 dark:bg-blue-950 text-blue-600'
+                    : 'text-gray-600 dark:text-gray-300'
+                }`}
+              >
+                <Icon className="w-5 h-5" />
+                <span className="text-[11px] leading-none">{item.label}</span>
+              </Link>
+            );
+          })}
+
+          <button
+            type="button"
+            onClick={handleToggleTheme}
+            className="inline-flex flex-col items-center justify-center gap-1 rounded-lg py-2 text-gray-600 dark:text-gray-300"
+            aria-label="Toggle theme"
+            title={themeMode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          >
+            {themeMode === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+            <span className="text-[11px] leading-none">{themeMode === 'dark' ? 'Light' : 'Dark'}</span>
+          </button>
+        </div>
+      </nav>
       
       {/* Main Content */}
-      <main className="w-full px-4 sm:px-6 lg:px-8 py-8">
+      <main className="w-full px-3 sm:px-6 lg:px-8 py-4 sm:py-8 pb-24 sm:pb-8">
         <Outlet />
       </main>
 
-      <footer className="mt-6 border-t border-gray-200 dark:border-gray-800 bg-white/90 dark:bg-gray-900/90 backdrop-blur">
+      <footer className="mt-2 sm:mt-6 border-t border-gray-200 dark:border-gray-800 bg-white/90 dark:bg-gray-900/90 backdrop-blur mb-16 sm:mb-0">
         <div className="w-full px-4 sm:px-6 lg:px-8 py-4">
           <p className="text-center text-xs sm:text-sm text-gray-600 dark:text-gray-400">
             © 2026 Steve Villa. IoT Household Energy Monitoring Dashboard. All rights reserved.

@@ -225,13 +225,13 @@ export default function Settings() {
   };
 
   return (
-    <div className="space-y-6 max-w-6xl mx-auto">
+    <div className="space-y-4 sm:space-y-6 max-w-6xl mx-auto">
       <div>
         <h1 className="text-3xl font-semibold text-gray-900 dark:text-gray-100">Settings</h1>
         <p className="text-gray-600 dark:text-gray-400 mt-1">Configure monthly rates, node behavior, and dashboard preferences</p>
       </div>
 
-      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 p-6">
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 p-4 sm:p-6">
         <div className="flex items-center gap-2 mb-6">
           <DollarSign className="w-5 h-5 text-gray-700 dark:text-gray-300" />
           <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Billing Settings</h2>
@@ -378,7 +378,7 @@ export default function Settings() {
         </div>
       </div>
 
-      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 p-6">
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 p-4 sm:p-6">
         <div className="flex items-center gap-2 mb-6">
           <Tag className="w-5 h-5 text-gray-700 dark:text-gray-300" />
           <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Node Settings</h2>
@@ -509,7 +509,7 @@ export default function Settings() {
         </div>
       </div>
 
-      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 p-6">
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 p-4 sm:p-6">
         <div className="flex items-center gap-2 mb-6">
           <Bell className="w-5 h-5 text-gray-700 dark:text-gray-300" />
           <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Insight Settings</h2>
@@ -558,7 +558,7 @@ export default function Settings() {
         </div>
       </div>
 
-      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 p-6">
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 p-4 sm:p-6">
         <div className="flex items-center gap-2 mb-6">
           <Palette className="w-5 h-5 text-gray-700 dark:text-gray-300" />
           <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Appearance & API</h2>
