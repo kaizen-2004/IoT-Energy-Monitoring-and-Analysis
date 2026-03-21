@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
-  Calendar,
   Minus,
   RefreshCw,
   TrendingDown,
@@ -75,6 +74,7 @@ export default function Dashboard() {
   const [isConnected, setIsConnected] = useState<boolean>(true);
   const [refreshInterval, setRefreshInterval] = useState<number>(30);
   const [selectedMonth, setSelectedMonth] = useState<string>(defaultMonth());
+  const [availableMonths, setAvailableMonths] = useState<string[]>([defaultMonth()]);
   const [chartData, setChartData] = useState<DailyData[]>([]);
   const [nodeSummaries, setNodeSummaries] = useState<NodeSummary[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
@@ -111,6 +111,7 @@ export default function Dashboard() {
       setChartData(dashboardData.chartData);
       setNodeSummaries(dashboardData.nodeSummaries);
       setAlerts(dashboardData.alerts);
+      setAvailableMonths(dashboardData.availableMonths);
       setCoverageLabel(dashboardData.selectedMonthCoverageLabel);
       setSelectedMonthTotalKWh(dashboardData.selectedMonthTotalKWh);
       setSelectedMonthTotalCost(dashboardData.selectedMonthTotalCost);
@@ -147,6 +148,8 @@ export default function Dashboard() {
   const hasChartData = chartDataWithTotals.some(
     (row) => row.node1 > 0 || row.node2 > 0 || row.node3 > 0 || row.total > 0
   );
+  const totalTodayKWh = nodeSummaries.reduce((sum, node) => sum + node.currentDayKWh, 0);
+  const totalTodayCost = nodeSummaries.reduce((sum, node) => sum + node.currentDayEstimatedCost, 0);
 
   const difference = selectedMonthTotalKWh - previousMonthTotalKWh;
   const percentChange = previousMonthTotalKWh > 0 ? (difference / previousMonthTotalKWh) * 100 : 0;
@@ -210,16 +213,18 @@ export default function Dashboard() {
             <label htmlFor="month-selector" className="text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">
               Billing Month:
             </label>
-            <div className="relative w-48">
-              <input
-                id="month-selector"
-                type="month"
-                value={selectedMonth}
-                onChange={(event) => setSelectedMonth(event.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-950 dark:text-gray-100"
-              />
-              <Calendar className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400 pointer-events-none" />
-            </div>
+            <select
+              id="month-selector"
+              value={selectedMonth}
+              onChange={(event) => setSelectedMonth(event.target.value)}
+              className="w-full sm:w-56 px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-950 dark:text-gray-100"
+            >
+              {availableMonths.map((month) => (
+                <option key={month} value={month}>
+                  {getMonthLabel(month)}
+                </option>
+              ))}
+            </select>
 
             <label htmlFor="refresh-interval" className="text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap lg:ml-3">
               Refresh Interval:
@@ -253,7 +258,7 @@ export default function Dashboard() {
 
         <div className="mt-4 space-y-1">
           <p className="text-sm text-gray-700 dark:text-gray-300">
-            Viewing: <span className="font-medium">{coverageLabel || getMonthLabel(selectedMonth)}</span>
+            Historical view: <span className="font-medium">{coverageLabel || getMonthLabel(selectedMonth)}</span>
           </p>
           <p className="text-xs text-gray-500 dark:text-gray-400">{rateCaption}</p>
         </div>
@@ -269,8 +274,8 @@ export default function Dashboard() {
         <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600 dark:text-gray-400">Total kWh ({getMonthLabel(selectedMonth)})</p>
-              <p className="text-3xl font-semibold text-gray-900 dark:text-gray-100 mt-1">{selectedMonthTotalKWh.toFixed(3)}</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">Total Today</p>
+              <p className="text-3xl font-semibold text-gray-900 dark:text-gray-100 mt-1">{totalTodayKWh.toFixed(3)}</p>
               <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">kWh</p>
             </div>
             <div className="w-12 h-12 bg-blue-100 dark:bg-blue-950 rounded-lg flex items-center justify-center">
@@ -282,12 +287,12 @@ export default function Dashboard() {
         <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600 dark:text-gray-400">Previous Month ({getMonthLabel(previousMonthKey)})</p>
-              <p className="text-3xl font-semibold text-gray-900 dark:text-gray-100 mt-1">{previousMonthTotalKWh.toFixed(3)}</p>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">kWh</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">Est. Cost Today</p>
+              <p className="text-3xl font-semibold text-gray-900 dark:text-gray-100 mt-1">PHP {totalTodayCost.toFixed(2)}</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Live daily cost estimate</p>
             </div>
-            <div className="w-12 h-12 bg-gray-100 dark:bg-gray-800 rounded-lg flex items-center justify-center">
-              <Zap className="w-6 h-6 text-gray-600 dark:text-gray-300" />
+            <div className="w-12 h-12 bg-green-100 dark:bg-green-950 rounded-lg flex items-center justify-center">
+              <span className="text-lg font-semibold text-green-700 dark:text-green-400">PHP</span>
             </div>
           </div>
         </div>
@@ -297,7 +302,7 @@ export default function Dashboard() {
             <div>
               <p className="text-sm text-gray-600 dark:text-gray-400">Total Cost ({getMonthLabel(selectedMonth)})</p>
               <p className="text-3xl font-semibold text-gray-900 dark:text-gray-100 mt-1">PHP {selectedMonthTotalCost.toFixed(2)}</p>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Based on selected month rate</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{selectedMonthTotalKWh.toFixed(3)} kWh selected month</p>
             </div>
             <div className="w-12 h-12 bg-green-100 dark:bg-green-950 rounded-lg flex items-center justify-center">
               <span className="text-lg font-semibold text-green-700 dark:text-green-400">PHP</span>
@@ -323,7 +328,7 @@ export default function Dashboard() {
       </div>
 
       <div>
-        <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-4">Individual Nodes ({getMonthLabel(selectedMonth)})</h2>
+        <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-4">Individual Nodes (Live Daily)</h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {nodeSummaries.map((node, index) => (
             <div key={node.applianceId} className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 p-6">
@@ -343,8 +348,8 @@ export default function Dashboard() {
 
               <div className="space-y-3">
                 <div>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">Monthly Consumption</p>
-                  <p className="text-2xl font-semibold text-gray-900 dark:text-gray-100">{node.periodKWh.toFixed(3)} kWh</p>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">Today&apos;s Consumption</p>
+                  <p className="text-2xl font-semibold text-gray-900 dark:text-gray-100">{node.currentDayKWh.toFixed(3)} kWh</p>
                 </div>
 
                 <div className="flex items-center justify-between text-sm">
@@ -353,7 +358,17 @@ export default function Dashboard() {
                 </div>
 
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-gray-600 dark:text-gray-400">Est. Cost This Month</span>
+                  <span className="text-gray-600 dark:text-gray-400">Est. Cost Today</span>
+                  <span className="font-medium text-gray-900 dark:text-gray-100">PHP {node.currentDayEstimatedCost.toFixed(2)}</span>
+                </div>
+
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-gray-600 dark:text-gray-400">Selected Month Total</span>
+                  <span className="font-medium text-gray-900 dark:text-gray-100">{node.periodKWh.toFixed(3)} kWh</span>
+                </div>
+
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-gray-600 dark:text-gray-400">Est. Cost ({getMonthLabel(selectedMonth)})</span>
                   <span className="font-medium text-gray-900 dark:text-gray-100">PHP {node.estimatedCost.toFixed(2)}</span>
                 </div>
 

@@ -33,6 +33,8 @@ export interface NodeSummary {
   label: string;
   deviceId: string;
   applianceId: string;
+  currentDayKWh: number;
+  currentDayEstimatedCost: number;
   periodKWh: number;
   previousMonthKWh: number;
   currentPower: number;
@@ -63,6 +65,7 @@ export interface DashboardData {
   nodeSummaries: NodeSummary[];
   alerts: Alert[];
   readings: ApiReading[];
+  availableMonths: string[];
   selectedMonth: string;
   selectedMonthCoverageLabel: string;
   selectedMonthTotalKWh: number;
@@ -356,6 +359,10 @@ function getMonthDisplayLabel(monthKey: string) {
   }).format(date);
 }
 
+function extractMonthKeyFromTimestamp(timestamp: string) {
+  return getPHTDayKey(timestamp).slice(0, 7);
+}
+
 function getPHTCurrentMonth() {
   const parts = parsePhtParts(new Date());
   return `${parts.year}-${parts.month}`;
@@ -629,11 +636,14 @@ function buildNodeSummaries(
   ratePerKwh: number,
   labels: string[]
 ): NodeSummary[] {
+  const todayKey = getPHTDayKey(new Date());
+
   return selectedAppliances.map((applianceId, index) => {
     const latest = latestByAppliance.get(applianceId);
     const defaultLabel = latest?.applianceName || `Node ${index + 1}`;
     const label = labels[index] || defaultLabel;
     const daily = dailyByAppliance.get(applianceId) || {};
+    const currentDayKWh = daily[todayKey] || 0;
     const periodKWh = sumByKeys(daily, selectedMonthDayKeys);
     const previousMonthKWh = sumByKeys(daily, previousMonthDayKeys);
 
@@ -642,12 +652,34 @@ function buildNodeSummaries(
       label,
       deviceId: latest?.nodeId || `ESP32-NODE-00${index + 1}`,
       applianceId,
+      currentDayKWh,
+      currentDayEstimatedCost: currentDayKWh * ratePerKwh,
       periodKWh,
       previousMonthKWh,
       currentPower: latest?.powerW || 0,
       estimatedCost: periodKWh * ratePerKwh
     };
   });
+}
+
+function buildAvailableMonths(readings: ApiReading[], rateHistory: MonthlyRate[], selectedMonth: string) {
+  const months = new Set<string>();
+  months.add(selectedMonth);
+  months.add(defaultMonth());
+
+  readings.forEach((row) => {
+    months.add(extractMonthKeyFromTimestamp(row.timestamp));
+  });
+
+  rateHistory.forEach((row) => {
+    if (isMonthString(row.month)) {
+      months.add(row.month);
+    }
+  });
+
+  return [...months]
+    .filter((month) => isMonthString(month))
+    .sort((a, b) => b.localeCompare(a));
 }
 
 function buildChartData(
@@ -720,6 +752,7 @@ export async function fetchDashboardData(
 
   const selectedAppliances = pickThreeAppliances([...latestByAppliance.keys()]);
   const dailyByAppliance = computeDailyKwh(readings);
+  const availableMonths = buildAvailableMonths(readings, settings.rateHistory, selectedMonth);
 
   const selectedMonthDayKeys = getMonthDayKeys(selectedMonth);
   const previousMonthKey = getPreviousMonth(selectedMonth);
@@ -768,6 +801,7 @@ export async function fetchDashboardData(
     nodeSummaries,
     alerts,
     readings,
+    availableMonths,
     selectedMonth,
     selectedMonthCoverageLabel: formatMonthCoverageLabel(selectedMonth),
     selectedMonthTotalKWh,
