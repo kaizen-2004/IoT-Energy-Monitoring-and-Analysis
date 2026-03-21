@@ -74,6 +74,20 @@ function drawMetricCard(
   pdf.text(value, x + 4, y + 18);
 }
 
+function fitTextToWidth(pdf: jsPDF, text: string, maxWidth: number) {
+  if (pdf.getTextWidth(text) <= maxWidth) {
+    return text;
+  }
+
+  const ellipsis = "...";
+  let value = text;
+  while (value.length > 0 && pdf.getTextWidth(value + ellipsis) > maxWidth) {
+    value = value.slice(0, -1);
+  }
+
+  return value.length > 0 ? `${value}${ellipsis}` : ellipsis;
+}
+
 function drawSeriesOnPdf(
   pdf: jsPDF,
   values: number[],
@@ -245,14 +259,14 @@ export default function Reports() {
       pdf.setFontSize(8.5);
       pdf.text(`Generated: ${generatedDate}`, pageWidth - 20, 14, { align: "right" });
       pdf.text(`Period: ${startDate} to ${endDate}`, pageWidth - 20, 20, { align: "right" });
-      pdf.text(`Rate: ₱${rate.toFixed(2)} per kWh`, pageWidth - 20, 26, { align: "right" });
+      pdf.text(`Rate: PHP ${rate.toFixed(2)} per kWh`, pageWidth - 20, 26, { align: "right" });
 
       yPos = 44;
       drawSectionHeader(pdf, "Summary Highlights", yPos);
       yPos += 10;
 
       drawMetricCard(pdf, 20, yPos, 54, "Total Today", `${totalKWh.toFixed(3)} kWh`, [37, 99, 235]);
-      drawMetricCard(pdf, 78, yPos, 54, "Estimated Cost", `₱${totalCost.toFixed(2)}`, [5, 150, 105]);
+      drawMetricCard(pdf, 78, yPos, 54, "Estimated Cost", `PHP ${totalCost.toFixed(2)}`, [5, 150, 105]);
       drawMetricCard(pdf, 136, yPos, 54, "Active Nodes", `${nodeSummaries.length}`, [124, 58, 237]);
 
       yPos += 33;
@@ -268,20 +282,23 @@ export default function Reports() {
         pdf.setFontSize(10);
 
         const headers = ["Node", "Appliance", "kWh Today", "Current Power", "Est. Cost", "Device ID"];
-        const colWidths = [15, 40, 25, 28, 25, 37];
+        const colWidths = [14, 56, 20, 24, 22, 28];
         let xPos = 20;
 
         pdf.setFillColor(37, 99, 235);
         pdf.rect(20, yPos - 5, pageWidth - 40, 8, "F");
         pdf.setTextColor(255, 255, 255);
+        pdf.setFontSize(9);
 
         headers.forEach((header, index) => {
-          pdf.text(header, xPos, yPos);
+          const displayHeader = fitTextToWidth(pdf, header, colWidths[index] - 1.5);
+          pdf.text(displayHeader, xPos, yPos);
           xPos += colWidths[index];
         });
 
         yPos += 8;
         pdf.setTextColor(31, 41, 55);
+        pdf.setFontSize(9);
 
         nodeSummaries.forEach((node, index) => {
           if (yPos > pageHeight - 30) {
@@ -295,7 +312,7 @@ export default function Reports() {
             node.label,
             `${node.todayKWh.toFixed(3)}`,
             `${Math.round(node.currentPower)} W`,
-            `₱${node.estimatedCost.toFixed(2)}`,
+            `PHP ${node.estimatedCost.toFixed(2)}`,
             node.deviceId
           ];
 
@@ -305,7 +322,8 @@ export default function Reports() {
           }
 
           rowData.forEach((data, valueIndex) => {
-            pdf.text(data, xPos, yPos);
+            const displayValue = fitTextToWidth(pdf, data, colWidths[valueIndex] - 1.5);
+            pdf.text(displayValue, xPos, yPos);
             xPos += colWidths[valueIndex];
           });
 
@@ -314,17 +332,27 @@ export default function Reports() {
       }
 
       if (includeCharts) {
-        pdf.addPage();
-        yPos = 20;
+        const requiredHeight = 122;
+        if (yPos + requiredHeight > pageHeight - 20) {
+          pdf.addPage();
+          yPos = 20;
+        } else {
+          yPos += 10;
+        }
 
         drawSectionHeader(pdf, "7-Day Energy Consumption Trend", yPos);
         yPos += 10;
         drawTrendChartPdf(pdf, chartData, nodeSummaries, pageWidth, yPos);
+        yPos += 108;
       }
 
       if (includeAlerts && alerts.length > 0) {
-        pdf.addPage();
-        yPos = 20;
+        if (yPos + 36 > pageHeight - 20) {
+          pdf.addPage();
+          yPos = 20;
+        } else {
+          yPos += 10;
+        }
 
         drawSectionHeader(pdf, "Recent Alerts", yPos);
         yPos += 10;
