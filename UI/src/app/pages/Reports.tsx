@@ -48,12 +48,12 @@ function isoDate(daysFromToday: number) {
   return date.toISOString().slice(0, 10);
 }
 
-function drawSectionHeader(pdf: jsPDF, title: string, y: number) {
+function drawSectionHeader(pdf: jsPDF, title: string, x: number, y: number, width: number) {
   pdf.setFillColor(32, 92, 195);
-  pdf.roundedRect(20, y - 5, 170, 10, 2, 2, "F");
+  pdf.roundedRect(x, y - 5, width, 10, 2, 2, "F");
   pdf.setTextColor(255, 255, 255);
   pdf.setFontSize(11);
-  pdf.text(title, 24, y + 1.5);
+  pdf.text(title, x + 4, y + 1.5);
 }
 
 function drawMetricCard(
@@ -119,17 +119,19 @@ function drawTrendChartPdf(
   pdf: jsPDF,
   chartData: DailyData[],
   nodeSummaries: NodeSummary[],
-  pageWidth: number,
-  startY: number
+  x: number,
+  startY: number,
+  width: number,
+  height: number
 ) {
-  const chartX = 20;
-  const chartWidth = pageWidth - 40;
-  const chartHeight = 90;
-  const plotPadding = 12;
-  const areaX = chartX + plotPadding;
-  const areaY = startY + plotPadding;
-  const areaWidth = chartWidth - plotPadding * 2;
-  const areaHeight = chartHeight - plotPadding * 2;
+  const chartX = x;
+  const chartWidth = width;
+  const chartHeight = height;
+  const padding = { top: 10, right: 10, bottom: 28, left: 10 };
+  const areaX = chartX + padding.left;
+  const areaY = startY + padding.top;
+  const areaWidth = chartWidth - padding.left - padding.right;
+  const areaHeight = Math.max(24, chartHeight - padding.top - padding.bottom);
 
   const node1 = chartData.map((row) => row.node1);
   const node2 = chartData.map((row) => row.node2);
@@ -160,27 +162,32 @@ function drawTrendChartPdf(
     const first = labels[0];
     const mid = labels[Math.floor(labels.length / 2)];
     const last = labels[labels.length - 1];
-    pdf.text(first, areaX, startY + chartHeight + 5);
-    pdf.text(mid, areaX + areaWidth / 2 - 8, startY + chartHeight + 5);
-    pdf.text(last, areaX + areaWidth - 12, startY + chartHeight + 5);
+    const labelsY = areaY + areaHeight + 6;
+    pdf.text(first, areaX, labelsY);
+    pdf.text(mid, areaX + areaWidth / 2 - 8, labelsY);
+    pdf.text(last, areaX + areaWidth - 12, labelsY);
   }
 
-  const legendY = startY + chartHeight + 12;
+  const legendY = startY + chartHeight - 8;
   const legendItems: Array<{ label: string; color: [number, number, number] }> = [
     { label: `Node 1 (${nodeSummaries[0]?.label || "Node 1"})`, color: [147, 51, 234] },
     { label: `Node 2 (${nodeSummaries[1]?.label || "Node 2"})`, color: [249, 115, 22] },
     { label: `Node 3 (${nodeSummaries[2]?.label || "Node 3"})`, color: [6, 182, 212] }
   ];
 
-  let legendX = chartX;
-  legendItems.forEach((item) => {
+  const compactItems = legendItems.map((item, index) => ({
+    ...item,
+    label: fitTextToWidth(pdf, item.label, areaWidth / 3 - 14) || `Node ${index + 1}`
+  }));
+  const segmentWidth = areaWidth / 3;
+  compactItems.forEach((item, index) => {
+    const legendX = areaX + segmentWidth * index;
     pdf.setDrawColor(item.color[0], item.color[1], item.color[2]);
     pdf.setLineWidth(1.2);
     pdf.line(legendX, legendY, legendX + 8, legendY);
     pdf.setTextColor(55, 65, 81);
     pdf.setFontSize(8);
     pdf.text(item.label, legendX + 10, legendY + 1.5);
-    legendX += 58;
   });
 }
 
@@ -245,48 +252,56 @@ export default function Reports() {
       const pdf = new jsPDF("p", "mm", "a4");
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
+      const marginX = 10;
+      const contentWidth = pageWidth - marginX * 2;
+      const footerLineY = pageHeight - 14;
+      const footerTextY = pageHeight - 9;
       let yPos = 8;
 
       pdf.setFillColor(16, 42, 108);
       pdf.rect(0, 0, pageWidth, 36, "F");
       pdf.setTextColor(255, 255, 255);
       pdf.setFontSize(18);
-      pdf.text("IoT Household Energy Monitoring Report", 20, 14);
+      pdf.text("IoT Household Energy Monitoring Report", marginX + 2, 14);
       pdf.setFontSize(10);
-      pdf.text("Home Energy Summary • Philippine Context (kWh)", 20, 21);
+      pdf.text("Home Energy Summary • Philippine Context (kWh)", marginX + 2, 21);
 
       const generatedDate = new Date().toLocaleString("en-PH", { timeZone: "Asia/Manila" });
       pdf.setFontSize(8.5);
-      pdf.text(`Generated: ${generatedDate}`, pageWidth - 20, 14, { align: "right" });
-      pdf.text(`Period: ${startDate} to ${endDate}`, pageWidth - 20, 20, { align: "right" });
-      pdf.text(`Rate: PHP ${rate.toFixed(2)} per kWh`, pageWidth - 20, 26, { align: "right" });
+      pdf.text(`Generated: ${generatedDate}`, pageWidth - marginX, 14, { align: "right" });
+      pdf.text(`Period: ${startDate} to ${endDate}`, pageWidth - marginX, 20, { align: "right" });
+      pdf.text(`Rate: PHP ${rate.toFixed(2)} per kWh`, pageWidth - marginX, 26, { align: "right" });
 
       yPos = 44;
-      drawSectionHeader(pdf, "Summary Highlights", yPos);
+      drawSectionHeader(pdf, "Summary Highlights", marginX, yPos, contentWidth);
       yPos += 10;
 
-      drawMetricCard(pdf, 20, yPos, 54, "Total Today", `${totalKWh.toFixed(3)} kWh`, [37, 99, 235]);
-      drawMetricCard(pdf, 78, yPos, 54, "Estimated Cost", `PHP ${totalCost.toFixed(2)}`, [5, 150, 105]);
-      drawMetricCard(pdf, 136, yPos, 54, "Active Nodes", `${nodeSummaries.length}`, [124, 58, 237]);
+      const cardGap = 4;
+      const cardWidth = (contentWidth - cardGap * 2) / 3;
+      drawMetricCard(pdf, marginX, yPos, cardWidth, "Total Today", `${totalKWh.toFixed(3)} kWh`, [37, 99, 235]);
+      drawMetricCard(pdf, marginX + cardWidth + cardGap, yPos, cardWidth, "Estimated Cost", `PHP ${totalCost.toFixed(2)}`, [5, 150, 105]);
+      drawMetricCard(pdf, marginX + cardWidth * 2 + cardGap * 2, yPos, cardWidth, "Active Nodes", `${nodeSummaries.length}`, [124, 58, 237]);
 
       yPos += 33;
       pdf.setTextColor(31, 41, 55);
       pdf.setFontSize(10);
-      pdf.text("This report summarizes latest node-level readings, estimated daily consumption, and threshold alerts.", 20, yPos);
+      pdf.text("This report summarizes latest node-level readings, estimated daily consumption, and threshold alerts.", marginX, yPos);
 
       if (includeNodeTable) {
         yPos += 10;
-        drawSectionHeader(pdf, "Node Details", yPos);
+        drawSectionHeader(pdf, "Node Details", marginX, yPos, contentWidth);
 
         yPos += 10;
         pdf.setFontSize(10);
 
         const headers = ["Node", "Appliance", "kWh Today", "Current Power", "Est. Cost", "Device ID"];
-        const colWidths = [14, 56, 20, 24, 22, 28];
-        let xPos = 20;
+        const colWidths = [0.12, 0.36, 0.13, 0.15, 0.14, 0.1].map((ratio) =>
+          Number((contentWidth * ratio).toFixed(2))
+        );
+        let xPos = marginX;
 
         pdf.setFillColor(37, 99, 235);
-        pdf.rect(20, yPos - 5, pageWidth - 40, 8, "F");
+        pdf.rect(marginX, yPos - 5, contentWidth, 8, "F");
         pdf.setTextColor(255, 255, 255);
         pdf.setFontSize(9);
 
@@ -301,12 +316,12 @@ export default function Reports() {
         pdf.setFontSize(9);
 
         nodeSummaries.forEach((node, index) => {
-          if (yPos > pageHeight - 30) {
+          if (yPos > pageHeight - 24) {
             pdf.addPage();
-            yPos = 20;
+            yPos = 18;
           }
 
-          xPos = 20;
+          xPos = marginX;
           const rowData = [
             `Node ${node.nodeId}`,
             node.label,
@@ -318,7 +333,7 @@ export default function Reports() {
 
           if (index % 2 === 0) {
             pdf.setFillColor(240, 247, 255);
-            pdf.rect(20, yPos - 5, pageWidth - 40, 8, "F");
+            pdf.rect(marginX, yPos - 5, contentWidth, 8, "F");
           }
 
           rowData.forEach((data, valueIndex) => {
@@ -332,50 +347,54 @@ export default function Reports() {
       }
 
       if (includeCharts) {
-        const requiredHeight = 122;
-        if (yPos + requiredHeight > pageHeight - 20) {
+        const minChartHeight = 120;
+        const maxChartHeight = 170;
+        if (yPos + minChartHeight + 14 > pageHeight - 18) {
           pdf.addPage();
-          yPos = 20;
+          yPos = 18;
         } else {
           yPos += 10;
         }
 
-        drawSectionHeader(pdf, "7-Day Energy Consumption Trend", yPos);
+        drawSectionHeader(pdf, "7-Day Energy Consumption Trend", marginX, yPos, contentWidth);
         yPos += 10;
-        drawTrendChartPdf(pdf, chartData, nodeSummaries, pageWidth, yPos);
-        yPos += 108;
+        const availableHeight = pageHeight - 18 - yPos;
+        const chartHeight = Math.max(minChartHeight, Math.min(maxChartHeight, availableHeight));
+        drawTrendChartPdf(pdf, chartData, nodeSummaries, marginX, yPos, contentWidth, chartHeight);
+        yPos += chartHeight;
       }
 
       if (includeAlerts && alerts.length > 0) {
-        if (yPos + 36 > pageHeight - 20) {
+        if (yPos + 36 > pageHeight - 18) {
           pdf.addPage();
-          yPos = 20;
+          yPos = 18;
         } else {
           yPos += 10;
         }
 
-        drawSectionHeader(pdf, "Recent Alerts", yPos);
+        drawSectionHeader(pdf, "Recent Alerts", marginX, yPos, contentWidth);
         yPos += 10;
         pdf.setFontSize(10);
         pdf.setTextColor(31, 41, 55);
 
         alerts.forEach((alert) => {
-          if (yPos > pageHeight - 30) {
+          if (yPos > pageHeight - 24) {
             pdf.addPage();
-            yPos = 20;
+            yPos = 18;
           }
 
           pdf.setFillColor(255, 244, 230);
-          pdf.roundedRect(20, yPos - 5, pageWidth - 40, 15, 2, 2, "F");
+          pdf.roundedRect(marginX, yPos - 5, contentWidth, 15, 2, 2, "F");
           pdf.setDrawColor(249, 115, 22);
           pdf.setLineWidth(0.8);
-          pdf.line(22, yPos - 3, 22, yPos + 8);
+          pdf.line(marginX + 2, yPos - 3, marginX + 2, yPos + 8);
 
-          pdf.text(`! ${alert.message}`, 25, yPos);
+          pdf.text(`! ${fitTextToWidth(pdf, alert.message, contentWidth - 18)}`, marginX + 5, yPos);
           yPos += 6;
           pdf.setFontSize(9);
           pdf.setTextColor(75, 85, 99);
-          pdf.text(`${alert.timestamp} | ${alert.nodeLabel} | ${alert.value}W / ${alert.threshold}W`, 25, yPos);
+          const detailText = `${alert.timestamp} | ${alert.nodeLabel} | ${alert.value}W / ${alert.threshold}W`;
+          pdf.text(fitTextToWidth(pdf, detailText, contentWidth - 8), marginX + 5, yPos);
           pdf.setFontSize(10);
           pdf.setTextColor(31, 41, 55);
           yPos += 12;
@@ -387,10 +406,10 @@ export default function Reports() {
         pdf.setPage(index);
         pdf.setDrawColor(203, 213, 225);
         pdf.setLineWidth(0.3);
-        pdf.line(20, pageHeight - 14, pageWidth - 20, pageHeight - 14);
+        pdf.line(marginX, footerLineY, pageWidth - marginX, footerLineY);
         pdf.setFontSize(8);
         pdf.setTextColor(71, 85, 105);
-        pdf.text(`Page ${index} of ${pageCount} • Data Source: ${API_BASE}`, pageWidth / 2, pageHeight - 9, {
+        pdf.text(`Page ${index} of ${pageCount} • Data Source: ${API_BASE}`, pageWidth / 2, footerTextY, {
           align: "center"
         });
       }
