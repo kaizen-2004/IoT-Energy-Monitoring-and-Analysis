@@ -1,14 +1,34 @@
 import { useState, useEffect } from 'react';
-import { Save, DollarSign, Tag, Bell, MapPin, Trash2, Plus, CheckCircle2, XCircle } from 'lucide-react';
+import { Save, DollarSign, Tag, Bell, MapPin, Trash2, CheckCircle2, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
-import { getMonthlyRates, saveMonthlyRates, getPHTTime } from '../utils/mockData';
-import type { MonthlyRate } from '../utils/mockData';
+import {
+  defaultMonth,
+  deleteMonthlyRate,
+  fetchSettingsViewData,
+  saveAppSettings,
+  saveMonthlyRate
+} from '../utils/mockData';
+import type { MonthlyRate, AppSettings } from '../utils/mockData';
+
+function resolveRateForMonth(rates: MonthlyRate[], month: string, fallback = 11.5) {
+  const sorted = [...rates].sort((a, b) => a.month.localeCompare(b.month));
+  const exact = sorted.find((item) => item.month === month);
+  if (exact) {
+    return exact.rate;
+  }
+  const previous = [...sorted].reverse().find((item) => item.month < month);
+  if (previous) {
+    return previous.rate;
+  }
+  return fallback;
+}
 
 export default function Settings() {
   // Billing Settings
-  const [selectedRateMonth, setSelectedRateMonth] = useState<string>(new Date().toISOString().slice(0, 7));
+  const [selectedRateMonth, setSelectedRateMonth] = useState<string>(defaultMonth());
   const [monthlyRateInput, setMonthlyRateInput] = useState<string>('11.5');
   const [monthlyRates, setMonthlyRates] = useState<MonthlyRate[]>([]);
+  const [fallbackRate, setFallbackRate] = useState<number>(11.5);
   
   // Node Settings
   const [node1Label, setNode1Label] = useState<string>('Refrigerator');
@@ -21,124 +41,115 @@ export default function Settings() {
   
   // Insight Settings
   const [timezone, setTimezone] = useState<string>('Asia/Manila');
+
+  const applySettings = (settings: AppSettings, rates: MonthlyRate[]) => {
+    setMonthlyRates(rates);
+    setFallbackRate(settings.electricityRate || 11.5);
+    setSelectedRateMonth(settings.effectiveMonth || defaultMonth());
+
+    setNode1Label(settings.nodeLabels[0] || 'Refrigerator');
+    setNode2Label(settings.nodeLabels[1] || 'Air Conditioner');
+    setNode3Label(settings.nodeLabels[2] || 'Water Heater');
+
+    setNode1Threshold(String(settings.nodeThresholds[0] || 500));
+    setNode2Threshold(String(settings.nodeThresholds[1] || 800));
+    setNode3Threshold(String(settings.nodeThresholds[2] || 600));
+    setTimezone(settings.timezone || 'Asia/Manila');
+  };
   
   useEffect(() => {
-    // Load saved settings
-    const savedLabels = localStorage.getItem('nodeLabels');
-    if (savedLabels) {
-      const labels = JSON.parse(savedLabels);
-      setNode1Label(labels[0]);
-      setNode2Label(labels[1]);
-      setNode3Label(labels[2]);
-    }
-    
-    const savedThresholds = localStorage.getItem('nodeThresholds');
-    if (savedThresholds) {
-      const thresholds = JSON.parse(savedThresholds);
-      setNode1Threshold(thresholds[0].toString());
-      setNode2Threshold(thresholds[1].toString());
-      setNode3Threshold(thresholds[2].toString());
-    }
-    
-    const savedTimezone = localStorage.getItem('timezone');
-    if (savedTimezone) setTimezone(savedTimezone);
-    
-    // Load monthly rates
-    const rates = getMonthlyRates();
-    setMonthlyRates(rates);
-    
-    // Set input value to selected month's rate if exists
-    const selectedRate = rates.find(r => r.month === selectedRateMonth);
-    if (selectedRate) {
-      setMonthlyRateInput(selectedRate.rate.toString());
-    }
+    const loadSettings = async () => {
+      try {
+        const { settings, monthlyRates: rates } = await fetchSettingsViewData();
+        applySettings(settings, rates);
+      } catch (error) {
+        toast.error(`Failed to load settings: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+    };
+
+    void loadSettings();
   }, []);
   
   useEffect(() => {
-    // Update input when selected month changes
-    const selectedRate = monthlyRates.find(r => r.month === selectedRateMonth);
-    if (selectedRate) {
-      setMonthlyRateInput(selectedRate.rate.toString());
-    } else {
-      setMonthlyRateInput('11.5');
-    }
-  }, [selectedRateMonth, monthlyRates]);
+    const resolved = resolveRateForMonth(monthlyRates, selectedRateMonth, fallbackRate);
+    setMonthlyRateInput(String(resolved));
+  }, [selectedRateMonth, monthlyRates, fallbackRate]);
   
-  const handleSaveMonthlyRate = () => {
+  const handleSaveMonthlyRate = async () => {
     const rateValue = parseFloat(monthlyRateInput);
     if (isNaN(rateValue) || rateValue <= 0) {
       toast.error('Please enter a valid rate');
       return;
     }
-    
-    const existingRateIndex = monthlyRates.findIndex(r => r.month === selectedRateMonth);
-    const updatedRates = [...monthlyRates];
-    
-    if (existingRateIndex >= 0) {
-      // Update existing rate
-      updatedRates[existingRateIndex] = {
-        ...updatedRates[existingRateIndex],
-        rate: rateValue,
-        source: 'manual',
-        lastUpdated: getPHTTime(),
-      };
-    } else {
-      // Add new rate
-      updatedRates.push({
-        month: selectedRateMonth,
-        rate: rateValue,
-        source: 'manual',
-        verified: true,
-        lastUpdated: getPHTTime(),
+
+    try {
+      await saveAppSettings({ effectiveMonth: selectedRateMonth });
+      await saveMonthlyRate(selectedRateMonth, rateValue, { source: 'manual', verified: true });
+      const { settings, monthlyRates: rates } = await fetchSettingsViewData();
+      applySettings(settings, rates);
+      toast.success('Rate saved successfully');
+    } catch (error) {
+      toast.error(`Could not save monthly rate: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
+  
+  const handleDeleteRate = async (month: string) => {
+    try {
+      await deleteMonthlyRate(month);
+      const { settings, monthlyRates: rates } = await fetchSettingsViewData();
+      applySettings(settings, rates);
+      toast.success('Rate deleted');
+    } catch (error) {
+      toast.error(`Could not delete rate: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
+  
+  const handleToggleVerified = async (month: string) => {
+    const target = monthlyRates.find((rate) => rate.month === month);
+    if (!target) return;
+
+    try {
+      await saveMonthlyRate(month, target.rate, {
+        source: target.source || 'manual',
+        sourceUrl: target.sourceUrl || null,
+        verified: !target.verified
       });
+      const { settings, monthlyRates: rates } = await fetchSettingsViewData();
+      applySettings(settings, rates);
+      toast.success('Rate verification updated');
+    } catch (error) {
+      toast.error(`Could not update verification: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
-    
-    // Sort by month descending
-    updatedRates.sort((a, b) => b.month.localeCompare(a.month));
-    
-    setMonthlyRates(updatedRates);
-    saveMonthlyRates(updatedRates);
-    
-    // Also update the legacy electricityRate for backward compatibility
-    if (selectedRateMonth === new Date().toISOString().slice(0, 7)) {
-      localStorage.setItem('electricityRate', rateValue.toString());
-    }
-    
-    toast.success('Rate saved successfully');
   };
   
-  const handleDeleteRate = (month: string) => {
-    const updatedRates = monthlyRates.filter(r => r.month !== month);
-    setMonthlyRates(updatedRates);
-    saveMonthlyRates(updatedRates);
-    toast.success('Rate deleted');
-  };
-  
-  const handleToggleVerified = (month: string) => {
-    const updatedRates = monthlyRates.map(r => 
-      r.month === month ? { ...r, verified: !r.verified } : r
-    );
-    setMonthlyRates(updatedRates);
-    saveMonthlyRates(updatedRates);
-    toast.success('Rate verification updated');
-  };
-  
-  const handleSaveNodes = () => {
+  const handleSaveNodes = async () => {
     const labels = [node1Label, node2Label, node3Label];
     const thresholds = [
       parseInt(node1Threshold) || 500,
       parseInt(node2Threshold) || 800,
       parseInt(node3Threshold) || 600,
     ];
-    
-    localStorage.setItem('nodeLabels', JSON.stringify(labels));
-    localStorage.setItem('nodeThresholds', JSON.stringify(thresholds));
-    toast.success('Node settings saved');
+
+    try {
+      const settings = await saveAppSettings({
+        nodeLabels: labels,
+        nodeThresholds: thresholds
+      });
+      applySettings(settings, settings.rateHistory || monthlyRates);
+      toast.success('Node settings saved');
+    } catch (error) {
+      toast.error(`Could not save node settings: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   };
   
-  const handleSaveInsight = () => {
-    localStorage.setItem('timezone', timezone);
-    toast.success('Insight settings saved');
+  const handleSaveInsight = async () => {
+    try {
+      const settings = await saveAppSettings({ timezone });
+      applySettings(settings, settings.rateHistory || monthlyRates);
+      toast.success('Insight settings saved');
+    } catch (error) {
+      toast.error(`Could not save insight settings: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   };
   
   return (
@@ -439,7 +450,7 @@ export default function Settings() {
       <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4">
         <p className="text-sm text-blue-800 font-medium mb-1">💡 Settings Management</p>
         <p className="text-xs text-blue-700">
-          Currently using local storage. Cloud sync capability will be available in future updates.
+          Settings are now synced with your cloud backend database in real time.
         </p>
       </div>
     </div>

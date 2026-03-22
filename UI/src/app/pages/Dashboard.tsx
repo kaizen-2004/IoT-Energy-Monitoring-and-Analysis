@@ -15,18 +15,11 @@ import {
 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { 
-  getLast7DaysData, 
-  getWholeMonthData,
-  getNodeSummaries, 
-  getAlerts, 
+  defaultMonth,
+  fetchDashboardViewData,
   getPHTTime,
-  getRateForMonth,
-  getComparisonData
 } from '../utils/mockData';
-import type { NodeSummary, DailyData, Alert, ComparisonData } from '../utils/mockData';
-
-type ChartMode = '7-day' | 'whole-month';
-type ComparisonMode = 'today-vs-yesterday' | '7days-vs-prev7days' | 'month-vs-lastmonth';
+import type { NodeSummary, DailyData, Alert, ComparisonData, ChartMode, ComparisonMode } from '../utils/mockData';
 
 export default function Dashboard() {
   const [lastUpdated, setLastUpdated] = useState<string>(getPHTTime());
@@ -36,34 +29,29 @@ export default function Dashboard() {
   const [chartData, setChartData] = useState<DailyData[]>([]);
   const [nodeSummaries, setNodeSummaries] = useState<NodeSummary[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
-  const [selectedMonth, setSelectedMonth] = useState<string>(new Date().toISOString().slice(0, 7));
+  const [selectedMonth, setSelectedMonth] = useState<string>(defaultMonth());
   const [rate, setRate] = useState<number>(11.5);
   const [showControls, setShowControls] = useState<boolean>(false);
   const [chartMode, setChartMode] = useState<ChartMode>('7-day');
   const [comparisonMode, setComparisonMode] = useState<ComparisonMode>('month-vs-lastmonth');
   const [comparisonData, setComparisonData] = useState<ComparisonData | null>(null);
   
-  const loadData = () => {
+  const loadData = async () => {
     setIsLoading(true);
     try {
-      const currentRate = getRateForMonth(selectedMonth);
-      setRate(currentRate);
-      
-      if (chartMode === '7-day') {
-        setChartData(getLast7DaysData());
-      } else {
-        const [year, month] = selectedMonth.split('-').map(Number);
-        setChartData(getWholeMonthData(year, month));
-      }
-      
-      setNodeSummaries(getNodeSummaries(currentRate, selectedMonth));
-      setAlerts(getAlerts());
+      const dashboard = await fetchDashboardViewData({
+        selectedMonth,
+        chartMode,
+        comparisonMode
+      });
+
+      setRate(dashboard.rate);
+      setChartData(dashboard.chartData);
+      setNodeSummaries(dashboard.nodeSummaries);
+      setAlerts(dashboard.alerts);
+      setComparisonData(dashboard.comparisonData);
       setLastUpdated(getPHTTime());
       setIsConnected(true);
-      
-      // Load comparison data
-      const comparison = getComparisonData(comparisonMode, selectedMonth);
-      setComparisonData(comparison);
     } catch (error) {
       console.error('Error loading data:', error);
       setIsConnected(false);
@@ -73,17 +61,17 @@ export default function Dashboard() {
   };
   
   useEffect(() => {
-    loadData();
+    void loadData();
     
     const interval = setInterval(() => {
-      loadData();
+      void loadData();
     }, refreshInterval * 1000);
     
     return () => clearInterval(interval);
   }, [refreshInterval, selectedMonth, chartMode, comparisonMode]);
   
   const handleApplyInterval = () => {
-    loadData();
+    void loadData();
     setShowControls(false);
   };
   

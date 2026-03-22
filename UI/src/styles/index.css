@@ -1,3 +1,39 @@
 @import './fonts.css';
 @import './tailwind.css';
 @import './theme.css';
+
+:root {
+  --bottom-nav-height: 5rem;
+  --viewport-bottom-offset: 0px;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+.app-shell {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+.page-content {
+  padding-bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom) + 1.5rem);
+}
+
+.bottom-nav {
+  bottom: var(--viewport-bottom-offset);
+  transform: translateZ(0);
+  -webkit-transform: translateZ(0);
+  will-change: transform;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+.bottom-nav-inner {
+  height: var(--bottom-nav-height);
+  padding-left: 0.25rem;
+  padding-right: 0.25rem;
+  padding-bottom: env(safe-area-inset-bottom);
+}

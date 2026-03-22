@@ -1,32 +1,48 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { FileText, Download, Calendar, Image as ImageIcon, Table, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
-import { getLast7DaysData, getWholeMonthData, getNodeSummaries, getAlerts, getRateForMonth } from '../utils/mockData';
+import { defaultMonth, fetchReportsViewData } from '../utils/mockData';
+import type { Alert, DailyData, NodeSummary } from '../utils/mockData';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 type ViewMode = '7-day' | 'whole-month';
 
 export default function Reports() {
-  const [selectedMonth, setSelectedMonth] = useState<string>(new Date().toISOString().slice(0, 7));
+  const [selectedMonth, setSelectedMonth] = useState<string>(defaultMonth());
   const [viewMode, setViewMode] = useState<ViewMode>('7-day');
   const [includeCharts, setIncludeCharts] = useState<boolean>(true);
   const [includeNodeTable, setIncludeNodeTable] = useState<boolean>(true);
   const [includeAlerts, setIncludeAlerts] = useState<boolean>(true);
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [rate, setRate] = useState<number>(11.5);
+  const [nodeSummaries, setNodeSummaries] = useState<NodeSummary[]>([]);
+  const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [chartData, setChartData] = useState<DailyData[]>([]);
   
-  const rate = getRateForMonth(selectedMonth);
-  const nodeSummaries = getNodeSummaries(rate, selectedMonth);
-  const alerts = getAlerts();
-  
-  // Get chart data based on view mode
-  const chartData = viewMode === '7-day' 
-    ? getLast7DaysData() 
-    : (() => {
-        const [year, month] = selectedMonth.split('-').map(Number);
-        return getWholeMonthData(year, month);
-      })();
+  useEffect(() => {
+    const loadData = async () => {
+      setIsLoading(true);
+      try {
+        const data = await fetchReportsViewData({
+          selectedMonth,
+          viewMode
+        });
+        setRate(data.rate);
+        setNodeSummaries(data.nodeSummaries);
+        setAlerts(data.alerts);
+        setChartData(data.chartData);
+      } catch (error) {
+        toast.error(`Failed to load report data: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    void loadData();
+  }, [selectedMonth, viewMode]);
   
   const totalKWh = nodeSummaries.reduce((sum, node) => sum + node.monthKWh, 0);
   const totalCost = totalKWh * rate;
@@ -37,6 +53,11 @@ export default function Reports() {
   });
   
   const handleGeneratePDF = async () => {
+    if (isLoading) {
+      toast.info('Still loading latest data. Please try again in a moment.');
+      return;
+    }
+
     setIsGenerating(true);
     toast.info('Generating PDF...');
     
@@ -254,6 +275,10 @@ export default function Reports() {
         </div>
         
         <div className="space-y-4">
+          {isLoading && (
+            <p className="text-xs text-gray-500">Loading live report data...</p>
+          )}
+
           {/* Summary */}
           <div className="p-4 bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl">
             <h3 className="text-sm font-semibold text-gray-900 mb-3">Summary</h3>
@@ -309,7 +334,7 @@ export default function Reports() {
                         stroke="#9333ea" 
                         strokeWidth={2} 
                         dot={false}
-                        name="Refrigerator"
+                        name={nodeSummaries[0]?.label || "Node 1"}
                       />
                       <Line 
                         id="report-node2-line"
@@ -318,7 +343,7 @@ export default function Reports() {
                         stroke="#f97316" 
                         strokeWidth={2} 
                         dot={false}
-                        name="Air Conditioner"
+                        name={nodeSummaries[1]?.label || "Node 2"}
                       />
                       <Line 
                         id="report-node3-line"
@@ -327,7 +352,7 @@ export default function Reports() {
                         stroke="#06b6d4" 
                         strokeWidth={2} 
                         dot={false}
-                        name="Water Heater"
+                        name={nodeSummaries[2]?.label || "Node 3"}
                       />
                       <Line 
                         id="report-total-line"
