@@ -49,10 +49,6 @@ export default function Layout() {
       {/* Main Content */}
       <main className="page-content px-4 py-6">
         <Outlet />
-
-        <footer className="mx-auto mt-8 max-w-md px-2 text-center text-[11px] leading-relaxed text-gray-500">
-          © 2026 Steve Villa. IoT Household Energy Monitoring Dashboard. All rights reserved.
-        </footer>
       </main>
       
       {/* Bottom Navigation - Mobile First with 44px tap targets */}
