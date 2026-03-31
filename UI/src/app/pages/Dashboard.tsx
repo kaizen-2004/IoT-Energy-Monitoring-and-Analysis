@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { 
   Zap, 
   TrendingUp, 
@@ -25,6 +25,7 @@ export default function Dashboard() {
   const [lastUpdated, setLastUpdated] = useState<string>(getPHTTime());
   const [isConnected, setIsConnected] = useState<boolean>(true);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [refreshInterval, setRefreshInterval] = useState<number>(30);
   const [chartData, setChartData] = useState<DailyData[]>([]);
   const [nodeSummaries, setNodeSummaries] = useState<NodeSummary[]>([]);
@@ -35,9 +36,15 @@ export default function Dashboard() {
   const [chartMode, setChartMode] = useState<ChartMode>('7-day');
   const [comparisonMode, setComparisonMode] = useState<ComparisonMode>('month-vs-lastmonth');
   const [comparisonData, setComparisonData] = useState<ComparisonData | null>(null);
+  const hasLoadedOnceRef = useRef<boolean>(false);
   
-  const loadData = async () => {
-    setIsLoading(true);
+  const loadData = async (backgroundRefresh = false) => {
+    if (backgroundRefresh) {
+      setIsRefreshing(true);
+    } else {
+      setIsLoading(true);
+    }
+
     try {
       const dashboard = await fetchDashboardViewData({
         selectedMonth,
@@ -57,21 +64,24 @@ export default function Dashboard() {
       setIsConnected(false);
     } finally {
       setIsLoading(false);
+      setIsRefreshing(false);
+      hasLoadedOnceRef.current = true;
     }
   };
   
   useEffect(() => {
-    void loadData();
+    const isBackgroundRefresh = hasLoadedOnceRef.current;
+    void loadData(isBackgroundRefresh);
     
     const interval = setInterval(() => {
-      void loadData();
+      void loadData(true);
     }, refreshInterval * 1000);
     
     return () => clearInterval(interval);
   }, [refreshInterval, selectedMonth, chartMode, comparisonMode]);
   
   const handleApplyInterval = () => {
-    void loadData();
+    void loadData(true);
     setShowControls(false);
   };
   
@@ -132,7 +142,7 @@ export default function Dashboard() {
   const InsightIcon = insightIcon;
   
   // Loading state
-  if (isLoading && chartData.length === 0) {
+  if (!hasLoadedOnceRef.current && isLoading && chartData.length === 0) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="text-center">
@@ -219,14 +229,19 @@ export default function Dashboard() {
         {/* Last Updated */}
         <div className="mt-3 flex items-center justify-between text-xs text-blue-100">
           <span>Updated: {lastUpdated}</span>
-          <button
-            onClick={() => setShowControls(!showControls)}
-            className="flex items-center gap-1 bg-white/10 px-3 py-1.5 rounded-lg active:bg-white/20"
-          >
-            <RefreshCw className="w-3.5 h-3.5" />
-            Settings
-            <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showControls ? 'rotate-180' : ''}`} />
-          </button>
+          <div className="flex items-center gap-2">
+            {isRefreshing && (
+              <span className="text-[11px] text-blue-100/90">Refreshing...</span>
+            )}
+            <button
+              onClick={() => setShowControls(!showControls)}
+              className="flex items-center gap-1 bg-white/10 px-3 py-1.5 rounded-lg active:bg-white/20"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+              Settings
+              <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showControls ? 'rotate-180' : ''}`} />
+            </button>
+          </div>
         </div>
         
         {/* Expandable Controls */}
