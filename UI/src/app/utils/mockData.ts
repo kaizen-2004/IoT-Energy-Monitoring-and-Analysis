@@ -98,9 +98,19 @@ function resolveApiBase() {
       ? import.meta.env.VITE_API_BASE.trim()
       : "";
 
-  const configured = envValue.replace(/\/+$/, "");
+  // Strip accidental wrapping quotes from dashboard environment variables.
+  const normalizedEnvValue = envValue.replace(/^['"]|['"]$/g, "");
+  const configured = normalizedEnvValue.replace(/\/+$/, "");
   if (configured) {
-    return /^https?:\/\//i.test(configured) ? configured : `https://${configured}`;
+    const candidate = /^https?:\/\//i.test(configured)
+      ? configured
+      : `https://${configured}`;
+
+    try {
+      return new URL(candidate).origin;
+    } catch {
+      // Fall through to automatic host inference/local fallback.
+    }
   }
 
   if (typeof window !== "undefined" && /onrender\.com$/i.test(window.location.hostname)) {
