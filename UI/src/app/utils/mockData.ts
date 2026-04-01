@@ -339,17 +339,28 @@ export async function saveMonthlyRate(
   rate: number,
   options: { source?: string; sourceUrl?: string | null; verified?: boolean } = {}
 ): Promise<MonthlyRate> {
+  const requestBody: Record<string, unknown> = {
+    ratePerKwh: rate
+  };
+
+  if (typeof options.source === "string" && options.source.trim().length > 0) {
+    requestBody.source = options.source.trim();
+  }
+
+  if (typeof options.sourceUrl === "string" && options.sourceUrl.trim().length > 0) {
+    requestBody.sourceUrl = options.sourceUrl.trim();
+  }
+
+  if (typeof options.verified === "boolean") {
+    requestBody.verified = options.verified;
+  }
+
   const payload = await fetchJson(`/api/rates/${normalizeMonth(month)}`, {
     method: "PUT",
     headers: {
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({
-      ratePerKwh: rate,
-      source: options.source || "manual",
-      sourceUrl: options.sourceUrl || null,
-      verified: typeof options.verified === "boolean" ? options.verified : true
-    })
+    body: JSON.stringify(requestBody)
   });
 
   return mapRate((payload.data || {}) as Record<string, unknown>);

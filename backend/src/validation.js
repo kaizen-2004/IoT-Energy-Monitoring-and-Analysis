@@ -138,7 +138,7 @@ function validateRateUpsertPayload(body) {
     errors.push("source must be a non-empty string when provided");
   }
 
-  if (body.sourceUrl !== undefined) {
+  if (body.sourceUrl !== undefined && body.sourceUrl !== null) {
     if (!isString(body.sourceUrl)) {
       errors.push("sourceUrl must be a non-empty string when provided");
     } else {

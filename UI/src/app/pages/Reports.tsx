@@ -1,8 +1,6 @@
 import { useEffect, useState } from 'react';
 import { FileText, Download, Calendar, Image as ImageIcon, Table, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
-import jsPDF from 'jspdf';
-import html2canvas from 'html2canvas';
 import { defaultMonth, fetchReportsViewData } from '../utils/mockData';
 import type { Alert, DailyData, NodeSummary } from '../utils/mockData';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
@@ -62,6 +60,11 @@ export default function Reports() {
     toast.info('Generating PDF...');
     
     try {
+      const [{ jsPDF }, { default: html2canvas }] = await Promise.all([
+        import('jspdf'),
+        import('html2canvas'),
+      ]);
+
       const pdf = new jsPDF('p', 'mm', 'a4');
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
@@ -164,15 +167,16 @@ export default function Reports() {
   };
   
   return (
-    <div className="space-y-4 max-w-md mx-auto">
+    <div className="w-full space-y-4">
       {/* Header */}
       <div className="px-1">
         <h1 className="text-2xl font-bold text-gray-900">Reports</h1>
         <p className="text-sm text-gray-600 mt-1">Export energy consumption data</p>
       </div>
-      
-      {/* Export Settings */}
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
+
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+        {/* Export Settings */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
         <div className="flex items-center gap-2 mb-4">
           <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center">
             <FileText className="w-5 h-5 text-blue-600" />
@@ -265,10 +269,10 @@ export default function Reports() {
             {isGenerating ? 'Generating...' : 'Download PDF'}
           </button>
         </div>
-      </div>
-      
-      {/* Preview */}
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
+        </div>
+
+        {/* Preview */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
         <div className="mb-4">
           <h2 className="text-lg font-semibold text-gray-900 mb-1">Preview</h2>
           <p className="text-xs text-gray-600">{selectedMonthLabel} • {viewMode === '7-day' ? '7-Day Trend' : 'Whole Month'}</p>
@@ -426,6 +430,7 @@ export default function Reports() {
               <p className="text-xs mt-1">Select at least one section to include in the report</p>
             </div>
           )}
+        </div>
         </div>
       </div>
     </div>
