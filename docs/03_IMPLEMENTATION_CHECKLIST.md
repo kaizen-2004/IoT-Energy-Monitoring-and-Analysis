@@ -4,7 +4,6 @@ Use this as the execution tracker while building.
 
 ## Phase 1: Design and Component Identification
 
-- [ ] Confirm final hardware list and quantities.
 - [ ] Confirm ESP32 pin assignments for each SCT-013 channel.
 - [ ] Confirm burden resistor values and target ADC voltage range.
 - [ ] Define node/appliance naming convention.
@@ -26,21 +25,21 @@ Use this as the execution tracker while building.
 
 ## Phase 3: Central Monitoring Integration
 
-- [ ] Stand up backend ingestion endpoint.
-- [ ] Implement input validation and timestamp handling.
-- [ ] Add data storage model for readings and alerts.
-- [ ] Add query endpoints for dashboard views.
-- [ ] Validate end-to-end device -> API -> storage path.
-- [ ] Verify stable Wi-Fi transmission over extended runs.
+- [x] Stand up backend ingestion endpoint.
+- [x] Implement input validation and timestamp handling.
+- [x] Add data storage model for readings and alerts.
+- [x] Add query endpoints for dashboard views.
+- [x] Validate end-to-end device -> API -> storage path.
+- [x] Verify stable Wi-Fi transmission over extended runs.
 
 ## Phase 4: Program and Dashboard Development
 
-- [ ] Finalize firmware reconnection logic.
+- [] Finalize firmware reconnection logic.
 - [ ] Add threshold-based abnormal flagging logic.
-- [ ] Build dashboard real-time metric cards.
-- [ ] Build historical line chart view.
-- [ ] Build alert list for threshold/abnormal events.
-- [ ] Add mobile-friendly layout.
+- [x] Build dashboard real-time metric cards.
+- [x] Build historical line chart view.
+- [x] Build alert list for threshold/abnormal events.
+- [x] Add mobile-friendly layout.
 - [ ] Validate multi-appliance filtering/display.
 
 ## Phase 5: Optimization, Testing, and Analysis
@@ -62,4 +61,3 @@ Use this as the execution tracker while building.
 - [ ] Record firmware version and calibration constants.
 - [ ] Export sample datasets and charts.
 - [ ] Finalize methodology, results, and analysis narrative.
-
