@@ -1,17 +1,30 @@
 import { createBrowserRouter } from "react-router";
-import Dashboard from "./pages/Dashboard";
-import Settings from "./pages/Settings";
-import Reports from "./pages/Reports";
 import Layout from "./components/Layout";
+import { loadDashboardPage, loadReportsPage, loadSettingsPage } from "./pageLoaders";
 
 export const router = createBrowserRouter([
   {
     path: "/",
     Component: Layout,
     children: [
-      { index: true, Component: Dashboard },
-      { path: "settings", Component: Settings },
-      { path: "reports", Component: Reports },
+      {
+        index: true,
+        lazy: async () => ({
+          Component: (await loadDashboardPage()).default,
+        }),
+      },
+      {
+        path: "settings",
+        lazy: async () => ({
+          Component: (await loadSettingsPage()).default,
+        }),
+      },
+      {
+        path: "reports",
+        lazy: async () => ({
+          Component: (await loadReportsPage()).default,
+        }),
+      },
     ],
   },
 ]);

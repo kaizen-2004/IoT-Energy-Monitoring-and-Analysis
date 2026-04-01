@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { defaultMonth, fetchReportsViewData } from '../utils/mockData';
 import type { Alert, DailyData, NodeSummary } from '../utils/mockData';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import MonthPicker from '../components/MonthPicker';
 
 type ViewMode = '7-day' | 'whole-month';
 
@@ -51,7 +52,9 @@ export default function Reports() {
   });
   
   const handleGeneratePDF = async () => {
-    if (isLoading) {
+    const hasRenderableData = chartData.length > 0 || nodeSummaries.length > 0;
+
+    if (isLoading && !hasRenderableData) {
       toast.info('Still loading latest data. Please try again in a moment.');
       return;
     }
@@ -60,15 +63,21 @@ export default function Reports() {
     toast.info('Generating PDF...');
     
     try {
-      const [{ jsPDF }, { default: html2canvas }] = await Promise.all([
-        import('jspdf'),
-        import('html2canvas'),
-      ]);
+      const jsPdfModule = await import('jspdf');
+      const JsPdfCtor =
+        jsPdfModule.jsPDF ||
+        (jsPdfModule.default as { jsPDF?: typeof jsPdfModule.jsPDF } | undefined)?.jsPDF ||
+        (jsPdfModule.default as unknown as typeof jsPdfModule.jsPDF);
 
-      const pdf = new jsPDF('p', 'mm', 'a4');
+      if (typeof JsPdfCtor !== 'function') {
+        throw new Error('jsPDF constructor is unavailable in this browser build.');
+      }
+
+      const pdf = new JsPdfCtor('p', 'mm', 'a4');
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
       let yPos = 20;
+      let chartSnapshotUnavailable = false;
       
       // Title
       pdf.setFontSize(20);
@@ -92,7 +101,7 @@ export default function Reports() {
       
       yPos += 10;
       pdf.setFontSize(10);
-      pdf.text(`Total: ${totalKWh.toFixed(2)} kWh | Cost: ₱${totalCost.toFixed(2)} | Rate: ₱${rate.toFixed(2)}/kWh`, 20, yPos);
+      pdf.text(`Total: ${totalKWh.toFixed(2)} kWh | Cost: PHP ${totalCost.toFixed(2)} | Rate: PHP ${rate.toFixed(2)}/kWh`, 20, yPos);
       
       // Node Table
       if (includeNodeTable) {
@@ -109,7 +118,7 @@ export default function Reports() {
             yPos = 20;
           }
           
-          pdf.text(`${node.label}: ${node.monthKWh.toFixed(2)} kWh, ${Math.round(node.currentPower)} W, ₱${node.monthEstimatedCost.toFixed(2)}`, 20, yPos);
+          pdf.text(`${node.label}: ${node.monthKWh.toFixed(2)} kWh, ${Math.round(node.currentPower)} W, PHP ${node.monthEstimatedCost.toFixed(2)}`, 20, yPos);
           yPos += 6;
         });
       }
@@ -126,11 +135,32 @@ export default function Reports() {
         
         const chartElement = document.getElementById('report-chart');
         if (chartElement) {
-          const canvas = await html2canvas(chartElement, { backgroundColor: '#ffffff', scale: 2 });
-          const imgData = canvas.toDataURL('image/png');
-          const imgWidth = pageWidth - 40;
-          const imgHeight = (canvas.height * imgWidth) / canvas.width;
-          pdf.addImage(imgData, 'PNG', 20, yPos, imgWidth, Math.min(imgHeight, 120));
+          try {
+            const html2canvasModule = await import('html2canvas');
+            const html2canvas =
+              html2canvasModule.default ||
+              (html2canvasModule as unknown as (target: HTMLElement, options?: object) => Promise<HTMLCanvasElement>);
+
+            const canvas = await html2canvas(chartElement, {
+              backgroundColor: '#ffffff',
+              scale: 2,
+              useCORS: true,
+              logging: false,
+            });
+            const imgData = canvas.toDataURL('image/png');
+            const imgWidth = pageWidth - 40;
+            const imgHeight = (canvas.height * imgWidth) / canvas.width;
+            pdf.addImage(imgData, 'PNG', 20, yPos, imgWidth, Math.min(imgHeight, 120));
+          } catch (chartError) {
+            chartSnapshotUnavailable = true;
+            console.error('Chart snapshot failed:', chartError);
+            pdf.setFontSize(10);
+            pdf.text('Chart snapshot could not be captured in this browser. Summary data is included.', 20, yPos);
+          }
+        } else {
+          chartSnapshotUnavailable = true;
+          pdf.setFontSize(10);
+          pdf.text('Chart is unavailable for snapshot. Summary data is included.', 20, yPos);
         }
       }
       
@@ -157,10 +187,14 @@ export default function Reports() {
       }
       
       pdf.save(`energy-report-${selectedMonth}-${viewMode}.pdf`);
-      toast.success('PDF generated!');
+      if (chartSnapshotUnavailable) {
+        toast.success('PDF generated. Chart snapshot was skipped.');
+      } else {
+        toast.success('PDF generated!');
+      }
     } catch (error) {
       console.error('Error:', error);
-      toast.error('Failed to generate PDF');
+      toast.error(`Failed to generate PDF: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setIsGenerating(false);
     }
@@ -187,18 +221,18 @@ export default function Reports() {
         <div className="space-y-4">
           {/* Billing Month */}
           <div>
-            <label htmlFor="billing-month" className="block text-sm font-medium text-gray-700 mb-2">
+            <label htmlFor="billing-month-picker" className="block text-sm font-medium text-gray-700 mb-2">
               <div className="flex items-center gap-2">
                 <Calendar className="w-4 h-4" />
                 Billing Month
               </div>
             </label>
-            <input
-              id="billing-month"
-              type="month"
+            <MonthPicker
+              id="billing-month-picker"
               value={selectedMonth}
-              onChange={(e) => setSelectedMonth(e.target.value)}
-              className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-h-[48px]"
+              onChange={setSelectedMonth}
+              minYear={2020}
+              maxYear={2035}
             />
           </div>
           

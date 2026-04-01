@@ -9,6 +9,7 @@ import {
   saveMonthlyRate
 } from '../utils/mockData';
 import type { MonthlyRate, AppSettings } from '../utils/mockData';
+import MonthPicker from '../components/MonthPicker';
 
 function resolveRateForMonth(rates: MonthlyRate[], month: string, fallback = 11.5) {
   const sorted = [...rates].sort((a, b) => a.month.localeCompare(b.month));
@@ -153,7 +154,7 @@ export default function Settings() {
   };
   
   return (
-    <div className="space-y-4 max-w-md mx-auto">
+    <div className="w-full space-y-4">
       {/* Header */}
       <div className="px-1">
         <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
@@ -174,12 +175,12 @@ export default function Settings() {
             <label htmlFor="rate-month" className="block text-sm font-medium text-gray-700 mb-2">
               Select Month
             </label>
-            <input
+            <MonthPicker
               id="rate-month"
-              type="month"
               value={selectedRateMonth}
-              onChange={(e) => setSelectedRateMonth(e.target.value)}
-              className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              onChange={setSelectedRateMonth}
+              minYear={2020}
+              maxYear={2035}
             />
           </div>
           

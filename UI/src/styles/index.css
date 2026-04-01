@@ -22,6 +22,12 @@ body,
   padding-bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom) + 1.5rem);
 }
 
+@media (min-width: 1024px) {
+  .page-content {
+    padding-bottom: 2rem;
+  }
+}
+
 .bottom-nav {
   bottom: var(--viewport-bottom-offset);
   transform: translateZ(0);

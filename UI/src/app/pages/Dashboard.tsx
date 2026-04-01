@@ -20,6 +20,7 @@ import {
   getPHTTime,
 } from '../utils/mockData';
 import type { NodeSummary, DailyData, Alert, ComparisonData, ChartMode, ComparisonMode } from '../utils/mockData';
+import MonthPicker from '../components/MonthPicker';
 
 const QUICK_INTERVALS = [15, 30, 60] as const;
 
@@ -134,13 +135,6 @@ export default function Dashboard() {
 
   const handleNextMonth = () => {
     setSelectedMonth((current) => shiftMonth(current, 1));
-  };
-
-  const handleMonthPickerChange = (value: string) => {
-    if (!value) {
-      return;
-    }
-    setSelectedMonth(value);
   };
 
   const { todayTotal, monthTotal, todayCostTotal, monthCostTotal } = useMemo(() => {
@@ -280,11 +274,13 @@ export default function Dashboard() {
           </div>
 
           <div className="hidden lg:block">
-            <input
-              type="month"
+            <MonthPicker
+              id="dashboard-billing-month"
               value={selectedMonth}
-              onChange={(event) => handleMonthPickerChange(event.target.value)}
-              className="w-full rounded-lg border border-white/30 bg-white/10 px-4 py-2.5 text-sm text-white backdrop-blur-sm focus:border-white/70 focus:outline-none focus:ring-2 focus:ring-white/40"
+              onChange={setSelectedMonth}
+              minYear={2020}
+              maxYear={2035}
+              variant="dark"
             />
           </div>
         </div>
