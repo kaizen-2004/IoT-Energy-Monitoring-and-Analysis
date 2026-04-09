@@ -2,6 +2,7 @@ const { query } = require("./db");
 
 const DEFAULT_NODE_LABELS = ["Node 1", "Node 2", "Node 3"];
 const DEFAULT_NODE_THRESHOLDS = [500, 800, 600];
+const MONITORED_APPLIANCES = ["appliance-01", "appliance-02", "appliance-03"];
 const DEFAULT_SETTINGS = {
   electricityRate: 11.5,
   effectiveMonth: new Date().toISOString().slice(0, 7),
@@ -272,28 +273,82 @@ class ReadingStore {
   }
 
   async getAlerts(limit) {
-    const sql = `
-      SELECT
-        node_id,
-        appliance_id,
-        appliance_name,
-        current_rms_a,
-        voltage_ref_v,
-        power_w,
-        energy_wh,
-        frequency_hz,
-        threshold_w,
-        abnormal,
-        reading_ts,
-        received_at
-      FROM readings
-      WHERE abnormal = TRUE OR power_w > threshold_w
-      ORDER BY reading_ts DESC
-      LIMIT $1
-    `;
+    await this.ensureSettingsTable();
+    const safeLimit = Number.isFinite(Number(limit)) ? Math.max(Number(limit), 0) : 50;
+    if (safeLimit < 1) {
+      return [];
+    }
 
-    const result = await query(sql, [limit]);
-    return result.rows.map(mapReadingRow);
+    const [settingsResult, latestResult] = await Promise.all([
+      query(
+        `
+          SELECT node_thresholds
+          FROM app_settings
+          WHERE id = 1
+          LIMIT 1
+        `
+      ),
+      query(
+        `
+          SELECT DISTINCT ON (appliance_id)
+            node_id,
+            appliance_id,
+            appliance_name,
+            current_rms_a,
+            voltage_ref_v,
+            power_w,
+            energy_wh,
+            frequency_hz,
+            threshold_w,
+            abnormal,
+            reading_ts,
+            received_at
+          FROM readings
+          WHERE appliance_id = ANY($1::text[])
+          ORDER BY appliance_id, reading_ts DESC
+        `,
+        [MONITORED_APPLIANCES]
+      )
+    ]);
+
+    const nodeThresholds = normalizeNodeThresholds(settingsResult.rows[0]?.node_thresholds);
+    const totalThresholdW = nodeThresholds.reduce((sum, value) => sum + value, 0);
+    const latestRows = latestResult.rows;
+    if (latestRows.length === 0) {
+      return [];
+    }
+
+    const totalPowerW = latestRows.reduce((sum, row) => sum + Number(row.power_w || 0), 0);
+    if (totalPowerW <= totalThresholdW) {
+      return [];
+    }
+
+    const latestRow = latestRows.reduce((currentLatest, row) => {
+      if (!currentLatest) {
+        return row;
+      }
+
+      return new Date(row.reading_ts).getTime() > new Date(currentLatest.reading_ts).getTime()
+        ? row
+        : currentLatest;
+    }, null);
+
+    return [
+      mapReadingRow({
+        node_id: "combined",
+        appliance_id: "combined-load",
+        appliance_name: "3-Appliance Total",
+        current_rms_a: latestRows.reduce((sum, row) => sum + Number(row.current_rms_a || 0), 0),
+        voltage_ref_v: 0,
+        power_w: totalPowerW,
+        energy_wh: null,
+        frequency_hz: null,
+        threshold_w: totalThresholdW,
+        abnormal: true,
+        reading_ts: latestRow?.reading_ts || new Date().toISOString(),
+        received_at: latestRow?.received_at || new Date().toISOString()
+      })
+    ];
   }
 
   async getSummary(windowMinutes) {
