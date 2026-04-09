@@ -25,6 +25,8 @@ function resolveRateForMonth(rates: MonthlyRate[], month: string, fallback = 11.
 }
 
 export default function Settings() {
+  const defaultThresholds = [500, 800, 600];
+
   // Billing Settings
   const [selectedRateMonth, setSelectedRateMonth] = useState<string>(defaultMonth());
   const [monthlyRateInput, setMonthlyRateInput] = useState<string>('11.5');
@@ -43,18 +45,25 @@ export default function Settings() {
   // Insight Settings
   const [timezone, setTimezone] = useState<string>('Asia/Manila');
 
+  const parsedThresholds = [node1Threshold, node2Threshold, node3Threshold].map((value, index) => {
+    const threshold = Number.parseFloat(value);
+    return Number.isFinite(threshold) && threshold >= 0 ? threshold : defaultThresholds[index];
+  });
+
+  const totalThreshold = parsedThresholds.reduce((sum, value) => sum + value, 0);
+
   const applySettings = (settings: AppSettings, rates: MonthlyRate[]) => {
     setMonthlyRates(rates);
-    setFallbackRate(settings.electricityRate || 11.5);
+    setFallbackRate(settings.electricityRate ?? 11.5);
     setSelectedRateMonth(settings.effectiveMonth || defaultMonth());
 
     setNode1Label(settings.nodeLabels[0] || 'Refrigerator');
     setNode2Label(settings.nodeLabels[1] || 'Air Conditioner');
     setNode3Label(settings.nodeLabels[2] || 'Water Heater');
 
-    setNode1Threshold(String(settings.nodeThresholds[0] || 500));
-    setNode2Threshold(String(settings.nodeThresholds[1] || 800));
-    setNode3Threshold(String(settings.nodeThresholds[2] || 600));
+    setNode1Threshold(String(settings.nodeThresholds[0] ?? 500));
+    setNode2Threshold(String(settings.nodeThresholds[1] ?? 800));
+    setNode3Threshold(String(settings.nodeThresholds[2] ?? 600));
     setTimezone(settings.timezone || 'Asia/Manila');
   };
   
@@ -125,11 +134,7 @@ export default function Settings() {
   
   const handleSaveNodes = async () => {
     const labels = [node1Label, node2Label, node3Label];
-    const thresholds = [
-      parseInt(node1Threshold) || 500,
-      parseInt(node2Threshold) || 800,
-      parseInt(node3Threshold) || 600,
-    ];
+    const thresholds = parsedThresholds;
 
     try {
       const settings = await saveAppSettings({
@@ -363,9 +368,9 @@ export default function Settings() {
           </div>
           
           {/* Node 3 */}
-          <div className="p-4 bg-cyan-50 border border-cyan-200 rounded-xl">
-            <h3 className="text-sm font-semibold text-gray-900 mb-3">Node 3</h3>
-            <div className="space-y-3">
+           <div className="p-4 bg-cyan-50 border border-cyan-200 rounded-xl">
+             <h3 className="text-sm font-semibold text-gray-900 mb-3">Node 3</h3>
+             <div className="space-y-3">
               <div>
                 <label htmlFor="node3-label" className="block text-xs font-medium text-gray-700 mb-1.5">
                   Device Name
@@ -393,12 +398,29 @@ export default function Settings() {
                   className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 min-h-[44px]"
                   placeholder="600"
                 />
+               </div>
+             </div>
+           </div>
+
+          <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold text-gray-900">Total Threshold</h3>
+                <p className="mt-1 text-xs text-gray-600">
+                  Combined threshold used for alerts across the three monitored appliances.
+                </p>
               </div>
+              <span className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-700">
+                {Math.round(totalThreshold)}W
+              </span>
             </div>
+            <p className="mt-3 text-xs text-blue-800">
+              One appliance may exceed its own threshold as long as the total combined load stays within {Math.round(totalThreshold)}W.
+            </p>
           </div>
-          
-          <button
-            onClick={handleSaveNodes}
+            
+           <button
+             onClick={handleSaveNodes}
             className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-xl font-medium active:bg-blue-700 transition-colors min-h-[48px]"
           >
             <Save className="w-4 h-4" />

@@ -2,8 +2,8 @@
 #define CONFIG_H
 
 // Wi-Fi credentials
-static const char* WIFI_SSID = "YOUR_WIFI_SSID";
-static const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
+static const char* WIFI_SSID = "test";
+static const char* WIFI_PASSWORD = "condo2026";
 
 // Backend endpoint
 static const char* API_ENDPOINT = "https://iot-energy-monitor-api.onrender.com/api/readings";
@@ -13,7 +13,7 @@ static const char* NODE_ID = "node-01";
 
 // Single-appliance node configuration
 static const int NUM_CHANNELS = 1;
-static const int SENSOR_PINS[NUM_CHANNELS] = {34};
+static const int SENSOR_PINS[NUM_CHANNELS] = {0};
 static const char* APPLIANCE_IDS[NUM_CHANNELS] = {"appliance-01"};
 static const char* APPLIANCE_NAMES[NUM_CHANNELS] = {"Node 1"};
 

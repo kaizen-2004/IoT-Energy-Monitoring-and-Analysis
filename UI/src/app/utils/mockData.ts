@@ -52,6 +52,17 @@ export interface Alert {
   message: string;
 }
 
+export interface CombinedMetrics {
+  todayKWh: number;
+  monthKWh: number;
+  todayCost: number;
+  monthCost: number;
+  totalThresholdW: number;
+  currentPowerW: number;
+  remainingThresholdW: number;
+  overThreshold: boolean;
+}
+
 export interface ComparisonData {
   currentValue: number;
   baselineValue: number;
@@ -84,13 +95,15 @@ export interface DashboardViewData {
   nodeSummaries: NodeSummary[];
   alerts: Alert[];
   comparisonData: ComparisonData;
+  combinedMetrics: CombinedMetrics;
 }
 
 const PHT_TIMEZONE = "Asia/Manila";
 const DEFAULT_NODE_LABELS = ["Refrigerator", "Air Conditioner", "Water Heater"];
 const DEFAULT_NODE_THRESHOLDS = [500, 800, 600];
+const DEFAULT_NODE_IDS = ["node-01", "node-02", "node-03"];
 const DEFAULT_RATE = 11.5;
-const FALLBACK_APPLIANCES = ["appliance-01", "appliance-02", "appliance-03"];
+const MONITORED_APPLIANCES = ["appliance-01", "appliance-02", "appliance-03"];
 
 function resolveApiBase() {
   const envValue =
@@ -165,10 +178,6 @@ function parsePhtParts(dateInput: Date | string) {
 function getPhtDayKey(dateInput: Date | string) {
   const parts = parsePhtParts(dateInput);
   return `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
-}
-
-function getPhtMonthKey(dateInput: Date | string) {
-  return getPhtDayKey(dateInput).slice(0, 7);
 }
 
 function parseDayKey(dayKey: string): Date {
@@ -395,28 +404,6 @@ export async function fetchReadings(limit = 5000): Promise<ApiReading[]> {
   });
 }
 
-async function fetchAlertRows(limit = 200): Promise<ApiReading[]> {
-  const payload = await fetchJson(`/api/alerts?limit=${limit}`);
-  const data = Array.isArray(payload.data) ? payload.data : [];
-  return data.map((row) => {
-    const value = row as Record<string, unknown>;
-    return {
-      nodeId: String(value.nodeId || ""),
-      applianceId: String(value.applianceId || ""),
-      applianceName: String(value.applianceName || ""),
-      currentRmsA: Number(value.currentRmsA || 0),
-      voltageRefV: Number(value.voltageRefV || 0),
-      powerW: Number(value.powerW || 0),
-      energyWh: value.energyWh === null ? null : Number(value.energyWh || 0),
-      frequencyHz: value.frequencyHz === null ? null : Number(value.frequencyHz || 0),
-      thresholdW: Number(value.thresholdW || 0),
-      abnormal: Boolean(value.abnormal),
-      timestamp: String(value.timestamp || new Date().toISOString()),
-      receivedAt: String(value.receivedAt || new Date().toISOString())
-    };
-  });
-}
-
 function computeDailyByAppliance(readings: ApiReading[]) {
   const byAppliance = new Map<string, ApiReading[]>();
 
@@ -472,16 +459,6 @@ function buildLatestByAppliance(readings: ApiReading[]) {
   });
 
   return map;
-}
-
-function pickAppliances(latestByAppliance: Map<string, ApiReading>) {
-  const selected = [...latestByAppliance.keys()].sort();
-  FALLBACK_APPLIANCES.forEach((id) => {
-    if (selected.length < 3 && !selected.includes(id)) {
-      selected.push(id);
-    }
-  });
-  return selected.slice(0, 3);
 }
 
 function sumByKeys(record: Record<string, number>, keys: string[]) {
@@ -554,7 +531,7 @@ function buildNodeSummaries(
     return {
       nodeId: index + 1,
       label: labels[index] || latest?.applianceName || DEFAULT_NODE_LABELS[index],
-      deviceId: latest?.nodeId || `ESP32-NODE-00${index + 1}`,
+      deviceId: latest?.nodeId || DEFAULT_NODE_IDS[index],
       todayKWh,
       yesterdayKWh,
       monthKWh,
@@ -579,6 +556,63 @@ function buildTotalByDay(
   });
 
   return totals;
+}
+
+function buildCombinedMetrics(nodeSummaries: NodeSummary[], thresholds: number[], rate: number): CombinedMetrics {
+  const todayKWh = nodeSummaries.reduce((sum, node) => sum + node.todayKWh, 0);
+  const monthKWh = nodeSummaries.reduce((sum, node) => sum + node.monthKWh, 0);
+  const currentPowerW = nodeSummaries.reduce((sum, node) => sum + node.currentPower, 0);
+  const totalThresholdW = thresholds.reduce((sum, value) => sum + value, 0);
+
+  return {
+    todayKWh: Number(todayKWh.toFixed(3)),
+    monthKWh: Number(monthKWh.toFixed(3)),
+    todayCost: Number((todayKWh * rate).toFixed(2)),
+    monthCost: Number((monthKWh * rate).toFixed(2)),
+    totalThresholdW: Number(totalThresholdW.toFixed(1)),
+    currentPowerW: Number(currentPowerW.toFixed(1)),
+    remainingThresholdW: Number((totalThresholdW - currentPowerW).toFixed(1)),
+    overThreshold: currentPowerW > totalThresholdW
+  };
+}
+
+function buildCombinedAlerts(
+  selectedAppliances: string[],
+  latestByAppliance: Map<string, ApiReading>,
+  combinedMetrics: CombinedMetrics
+): Alert[] {
+  if (!combinedMetrics.overThreshold) {
+    return [];
+  }
+
+  const latestTimestamp = selectedAppliances.reduce<string | null>((currentLatest, applianceId) => {
+    const reading = latestByAppliance.get(applianceId);
+    if (!reading?.timestamp) {
+      return currentLatest;
+    }
+
+    if (!currentLatest) {
+      return reading.timestamp;
+    }
+
+    return new Date(reading.timestamp).getTime() > new Date(currentLatest).getTime()
+      ? reading.timestamp
+      : currentLatest;
+  }, null);
+
+  return [
+    {
+      id: "combined-threshold-alert",
+      timestamp: latestTimestamp ? formatTimestampPht(latestTimestamp) : getPHTTime(),
+      nodeId: 0,
+      nodeLabel: "3-Appliance Total",
+      value: Math.round(combinedMetrics.currentPowerW),
+      threshold: Math.round(combinedMetrics.totalThresholdW),
+      message: `Combined appliance load exceeded the total threshold of ${Math.round(
+        combinedMetrics.totalThresholdW
+      )}W`
+    }
+  ];
 }
 
 function computeComparisonData(
@@ -659,36 +693,6 @@ function formatTimestampPht(timestamp: string) {
   });
 }
 
-function mapAlerts(
-  selectedMonth: string,
-  rows: ApiReading[],
-  selectedAppliances: string[],
-  labels: string[]
-): Alert[] {
-  const applianceIndex = new Map<string, number>(
-    selectedAppliances.map((applianceId, index) => [applianceId, index])
-  );
-
-  return rows
-    .filter((row) => getPhtMonthKey(row.timestamp) === selectedMonth)
-    .map((row, index) => {
-      const selectedIndex = applianceIndex.get(row.applianceId) ?? 0;
-      const nodeLabel = labels[selectedIndex] || row.applianceName || DEFAULT_NODE_LABELS[selectedIndex];
-      return {
-        id: `${row.applianceId}-${row.timestamp}-${index}`,
-        timestamp: formatTimestampPht(row.timestamp),
-        nodeId: selectedIndex + 1,
-        nodeLabel,
-        value: Number(row.powerW || 0),
-        threshold: Number(row.thresholdW || 0),
-        message:
-          row.abnormal || row.powerW > row.thresholdW
-            ? `${nodeLabel} power consumption exceeded ${row.thresholdW}W`
-            : `${nodeLabel} abnormal reading detected`
-      };
-    });
-}
-
 export async function fetchDashboardViewData(options: {
   selectedMonth?: string;
   chartMode: ChartMode;
@@ -699,16 +703,8 @@ export async function fetchDashboardViewData(options: {
   const rate = resolveRateForMonth(settings.rateHistory, selectedMonth, settings.electricityRate);
 
   const readings = await fetchReadings(5000);
-  let alertRows: ApiReading[] = [];
-
-  try {
-    alertRows = await fetchAlertRows(200);
-  } catch (_error) {
-    alertRows = readings.filter((row) => row.abnormal || row.powerW > row.thresholdW);
-  }
-
   const latestByAppliance = buildLatestByAppliance(readings);
-  const selectedAppliances = pickAppliances(latestByAppliance);
+  const selectedAppliances = [...MONITORED_APPLIANCES];
   const dailyByAppliance = computeDailyByAppliance(readings);
   const chartData = buildChartData(options.chartMode, selectedMonth, selectedAppliances, dailyByAppliance);
   const nodeSummaries = buildNodeSummaries(
@@ -719,7 +715,8 @@ export async function fetchDashboardViewData(options: {
     dailyByAppliance,
     latestByAppliance
   );
-  const alerts = mapAlerts(selectedMonth, alertRows, selectedAppliances, settings.nodeLabels);
+  const combinedMetrics = buildCombinedMetrics(nodeSummaries, settings.nodeThresholds, rate);
+  const alerts = buildCombinedAlerts(selectedAppliances, latestByAppliance, combinedMetrics);
   const totalsByDay = buildTotalByDay(selectedAppliances, dailyByAppliance);
   const comparisonData = computeComparisonData(options.comparisonMode, selectedMonth, totalsByDay);
 
@@ -729,7 +726,8 @@ export async function fetchDashboardViewData(options: {
     chartData,
     nodeSummaries,
     alerts,
-    comparisonData
+    comparisonData,
+    combinedMetrics
   };
 }
 
@@ -743,8 +741,8 @@ export async function fetchReportsViewData(options: {
     comparisonMode: "month-vs-lastmonth"
   });
 
-  const totalKWh = dashboard.nodeSummaries.reduce((sum, node) => sum + node.monthKWh, 0);
-  const totalCost = totalKWh * dashboard.rate;
+  const totalKWh = dashboard.combinedMetrics.monthKWh;
+  const totalCost = dashboard.combinedMetrics.monthCost;
 
   return {
     ...dashboard,

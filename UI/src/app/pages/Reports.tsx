@@ -2,11 +2,22 @@ import { useEffect, useState } from 'react';
 import { FileText, Download, Calendar, Image as ImageIcon, Table, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { defaultMonth, fetchReportsViewData } from '../utils/mockData';
-import type { Alert, DailyData, NodeSummary } from '../utils/mockData';
+import type { Alert, CombinedMetrics, DailyData, NodeSummary } from '../utils/mockData';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import MonthPicker from '../components/MonthPicker';
 
 type ViewMode = '7-day' | 'whole-month';
+
+const EMPTY_COMBINED_METRICS: CombinedMetrics = {
+  todayKWh: 0,
+  monthKWh: 0,
+  todayCost: 0,
+  monthCost: 0,
+  totalThresholdW: 0,
+  currentPowerW: 0,
+  remainingThresholdW: 0,
+  overThreshold: false,
+};
 
 export default function Reports() {
   const [selectedMonth, setSelectedMonth] = useState<string>(defaultMonth());
@@ -20,6 +31,7 @@ export default function Reports() {
   const [nodeSummaries, setNodeSummaries] = useState<NodeSummary[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [chartData, setChartData] = useState<DailyData[]>([]);
+  const [combinedMetrics, setCombinedMetrics] = useState<CombinedMetrics>(EMPTY_COMBINED_METRICS);
   
   useEffect(() => {
     const loadData = async () => {
@@ -33,6 +45,7 @@ export default function Reports() {
         setNodeSummaries(data.nodeSummaries);
         setAlerts(data.alerts);
         setChartData(data.chartData);
+        setCombinedMetrics(data.combinedMetrics);
       } catch (error) {
         toast.error(`Failed to load report data: ${error instanceof Error ? error.message : 'Unknown error'}`);
       } finally {
@@ -43,8 +56,11 @@ export default function Reports() {
     void loadData();
   }, [selectedMonth, viewMode]);
   
-  const totalKWh = nodeSummaries.reduce((sum, node) => sum + node.monthKWh, 0);
-  const totalCost = totalKWh * rate;
+  const totalKWh = combinedMetrics.monthKWh;
+  const totalCost = combinedMetrics.monthCost;
+  const thresholdStatusText = combinedMetrics.overThreshold
+    ? `Combined load is ${Math.round(Math.abs(combinedMetrics.remainingThresholdW))}W above the total threshold.`
+    : `Combined load is within the total threshold with ${Math.round(combinedMetrics.remainingThresholdW)}W remaining.`;
   
   const selectedMonthLabel = new Date(selectedMonth + '-01').toLocaleDateString('en-PH', { 
     month: 'long', 
@@ -76,63 +92,145 @@ export default function Reports() {
       const pdf = new JsPdfCtor('p', 'mm', 'a4');
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
-      let yPos = 20;
+      const pageMargin = 16;
+      const contentWidth = pageWidth - pageMargin * 2;
+      let yPos = 18;
       let chartSnapshotUnavailable = false;
-      
-      // Title
+
+      const ensurePageSpace = (requiredHeight: number) => {
+        if (yPos + requiredHeight <= pageHeight - 16) {
+          return;
+        }
+
+        pdf.addPage();
+        yPos = 20;
+      };
+
+      const drawSectionTitle = (title: string, subtitle?: string) => {
+        ensurePageSpace(subtitle ? 16 : 10);
+        pdf.setFont('helvetica', 'bold');
+        pdf.setFontSize(13);
+        pdf.setTextColor(15, 23, 42);
+        pdf.text(title, pageMargin, yPos);
+
+        if (subtitle) {
+          pdf.setFont('helvetica', 'normal');
+          pdf.setFontSize(9);
+          pdf.setTextColor(100, 116, 139);
+          pdf.text(subtitle, pageMargin, yPos + 5);
+          yPos += 12;
+        } else {
+          yPos += 7;
+        }
+
+        pdf.setDrawColor(226, 232, 240);
+        pdf.line(pageMargin, yPos, pageWidth - pageMargin, yPos);
+        yPos += 6;
+      };
+
+      const drawMetricCard = (x: number, y: number, label: string, value: string, accent: [number, number, number]) => {
+        const cardWidth = (contentWidth - 6) / 2;
+        const cardHeight = 26;
+        const labelLines = pdf.splitTextToSize(label, cardWidth - 12);
+
+        pdf.setFillColor(248, 250, 252);
+        pdf.setDrawColor(226, 232, 240);
+        pdf.roundedRect(x, y, cardWidth, cardHeight, 3, 3, 'FD');
+        pdf.setFillColor(accent[0], accent[1], accent[2]);
+        pdf.roundedRect(x, y, 4, cardHeight, 3, 3, 'F');
+        pdf.setFont('helvetica', 'normal');
+        pdf.setFontSize(8);
+        pdf.setTextColor(100, 116, 139);
+        pdf.text(labelLines, x + 8, y + 6.5);
+        pdf.setFont('helvetica', 'bold');
+        pdf.setFontSize(12);
+        pdf.setTextColor(15, 23, 42);
+        pdf.text(value, x + 8, y + 20.5);
+      };
+
+      pdf.setFillColor(15, 23, 42);
+      pdf.roundedRect(pageMargin, yPos, contentWidth, 30, 5, 5, 'F');
+      pdf.setFont('helvetica', 'bold');
       pdf.setFontSize(20);
-      pdf.text('Energy Report', pageWidth / 2, yPos, { align: 'center' });
-      
-      yPos += 10;
+      pdf.setTextColor(255, 255, 255);
+      pdf.text('Energy Consumption Report', pageMargin + 6, yPos + 11);
+
+      pdf.setFont('helvetica', 'normal');
       pdf.setFontSize(10);
       const generatedDate = new Date().toLocaleString('en-PH', { timeZone: 'Asia/Manila' });
-      pdf.text(`Generated: ${generatedDate}`, pageWidth / 2, yPos, { align: 'center' });
-      
-      yPos += 8;
-      pdf.text(`Period: ${selectedMonthLabel}`, pageWidth / 2, yPos, { align: 'center' });
-      
-      yPos += 6;
-      pdf.text(`View: ${viewMode === '7-day' ? '7-Day Trend' : 'Whole Month'}`, pageWidth / 2, yPos, { align: 'center' });
-      
-      // Summary
-      yPos += 15;
-      pdf.setFontSize(14);
-      pdf.text('Summary', 20, yPos);
-      
-      yPos += 10;
+      pdf.text(`Generated: ${generatedDate}`, pageMargin + 6, yPos + 19);
+      pdf.text(`Period: ${selectedMonthLabel}`, pageMargin + 6, yPos + 25);
+      pdf.text(`View: ${viewMode === '7-day' ? '7-Day Trend' : 'Whole Month'}`, pageWidth - pageMargin - 6, yPos + 25, {
+        align: 'right',
+      });
+
+      yPos += 38;
+      drawSectionTitle('Summary Snapshot', 'Combined totals for the three monitored appliances');
+
+      const cardGap = 6;
+      const firstColumnX = pageMargin;
+      const secondColumnX = pageMargin + ((contentWidth - cardGap) / 2) + cardGap;
+      drawMetricCard(firstColumnX, yPos, 'Today Total', `${combinedMetrics.todayKWh.toFixed(2)} kWh`, [59, 130, 246]);
+      drawMetricCard(secondColumnX, yPos, 'Month Total', `${totalKWh.toFixed(2)} kWh`, [37, 99, 235]);
+      yPos += 30;
+      drawMetricCard(firstColumnX, yPos, 'Total Estimated Cost This Month', `PHP ${totalCost.toFixed(2)}`, [14, 165, 233]);
+      drawMetricCard(secondColumnX, yPos, 'Rate', `PHP ${rate.toFixed(2)}/kWh`, [99, 102, 241]);
+      yPos += 30;
+      drawMetricCard(firstColumnX, yPos, 'Total Threshold', `${Math.round(combinedMetrics.totalThresholdW)} W`, [245, 158, 11]);
+      drawMetricCard(secondColumnX, yPos, 'Current Load', `${Math.round(combinedMetrics.currentPowerW)} W`, [249, 115, 22]);
+      yPos += 32;
+
+      ensurePageSpace(14);
+      pdf.setFillColor(combinedMetrics.overThreshold ? 254 : 220, combinedMetrics.overThreshold ? 226 : 252, combinedMetrics.overThreshold ? 226 : 231);
+      pdf.setDrawColor(combinedMetrics.overThreshold ? 248 : 134, combinedMetrics.overThreshold ? 113 : 239, combinedMetrics.overThreshold ? 113 : 172);
+      pdf.roundedRect(pageMargin, yPos, contentWidth, 12, 3, 3, 'FD');
+      pdf.setFont('helvetica', 'bold');
       pdf.setFontSize(10);
-      pdf.text(`Total: ${totalKWh.toFixed(2)} kWh | Cost: PHP ${totalCost.toFixed(2)} | Rate: PHP ${rate.toFixed(2)}/kWh`, 20, yPos);
-      
-      // Node Table
+      pdf.setTextColor(combinedMetrics.overThreshold ? 153 : 22, combinedMetrics.overThreshold ? 27 : 101, combinedMetrics.overThreshold ? 27 : 52);
+      pdf.text(
+        combinedMetrics.overThreshold
+          ? `Threshold Status: Over by ${Math.round(Math.abs(combinedMetrics.remainingThresholdW))}W`
+          : `Threshold Status: Within limit with ${Math.round(combinedMetrics.remainingThresholdW)}W remaining`,
+        pageMargin + 4,
+        yPos + 7.5
+      );
+      yPos += 18;
+
       if (includeNodeTable) {
-        yPos += 15;
-        pdf.setFontSize(14);
-        pdf.text('Devices', 20, yPos);
-        
-        yPos += 8;
-        pdf.setFontSize(9);
-        
-        nodeSummaries.forEach((node) => {
-          if (yPos > pageHeight - 30) {
-            pdf.addPage();
-            yPos = 20;
-          }
-          
-          pdf.text(`${node.label}: ${node.monthKWh.toFixed(2)} kWh, ${Math.round(node.currentPower)} W, PHP ${node.monthEstimatedCost.toFixed(2)}`, 20, yPos);
-          yPos += 6;
+        drawSectionTitle('Devices', 'Monthly totals, current load, and cost estimates per appliance');
+
+        nodeSummaries.forEach((node, index) => {
+          ensurePageSpace(24);
+          const accent =
+            index === 0 ? [243, 232, 255] : index === 1 ? [255, 237, 213] : [207, 250, 254];
+
+          pdf.setFillColor(accent[0], accent[1], accent[2]);
+          pdf.setDrawColor(226, 232, 240);
+          pdf.roundedRect(pageMargin, yPos, contentWidth, 22, 3, 3, 'FD');
+          pdf.setFont('helvetica', 'bold');
+          pdf.setFontSize(10);
+          pdf.setTextColor(15, 23, 42);
+          pdf.text(node.label, pageMargin + 4, yPos + 6);
+          pdf.text(`${node.monthKWh.toFixed(2)} kWh`, pageWidth - pageMargin - 4, yPos + 6, { align: 'right' });
+          pdf.setFont('helvetica', 'normal');
+          pdf.setFontSize(8.5);
+          pdf.setTextColor(71, 85, 105);
+          pdf.text(`Current Load: ${Math.round(node.currentPower)}W`, pageMargin + 4, yPos + 11.5);
+          pdf.text(`Today: ${node.todayKWh.toFixed(2)} kWh`, pageMargin + 56, yPos + 11.5);
+          pdf.text(`Estimated Cost This Month: PHP ${node.monthEstimatedCost.toFixed(2)}`, pageMargin + 4, yPos + 17);
+          yPos += 26;
         });
       }
-      
-      // Chart
+
       if (includeCharts) {
         pdf.addPage();
         yPos = 20;
-        
-        pdf.setFontSize(14);
-        pdf.text(viewMode === '7-day' ? '7-Day Trend' : 'Whole Month Trend', 20, yPos);
-        
-        yPos += 10;
-        
+
+        drawSectionTitle(
+          viewMode === '7-day' ? '7-Day Trend' : 'Whole Month Trend',
+          'Consumption trend for the three monitored appliances and their combined total'
+        );
+
         const chartElement = document.getElementById('report-chart');
         if (chartElement) {
           try {
@@ -148,42 +246,71 @@ export default function Reports() {
               logging: false,
             });
             const imgData = canvas.toDataURL('image/png');
-            const imgWidth = pageWidth - 40;
+            const imgWidth = contentWidth - 8;
             const imgHeight = (canvas.height * imgWidth) / canvas.width;
-            pdf.addImage(imgData, 'PNG', 20, yPos, imgWidth, Math.min(imgHeight, 120));
+            const renderedHeight = Math.min(imgHeight, 120);
+            pdf.setFillColor(255, 255, 255);
+            pdf.setDrawColor(226, 232, 240);
+            pdf.roundedRect(pageMargin, yPos, contentWidth, renderedHeight + 8, 4, 4, 'FD');
+            pdf.addImage(imgData, 'PNG', pageMargin + 4, yPos + 4, imgWidth, renderedHeight);
+            yPos += renderedHeight + 14;
           } catch (chartError) {
             chartSnapshotUnavailable = true;
             console.error('Chart snapshot failed:', chartError);
+            pdf.setFillColor(255, 247, 237);
+            pdf.setDrawColor(253, 186, 116);
+            pdf.roundedRect(pageMargin, yPos, contentWidth, 14, 3, 3, 'FD');
+            pdf.setFont('helvetica', 'normal');
             pdf.setFontSize(10);
-            pdf.text('Chart snapshot could not be captured in this browser. Summary data is included.', 20, yPos);
+            pdf.setTextColor(154, 52, 18);
+            pdf.text('Chart snapshot could not be captured in this browser. Summary data is included.', pageMargin + 4, yPos + 8.5);
           }
         } else {
           chartSnapshotUnavailable = true;
+          pdf.setFillColor(255, 247, 237);
+          pdf.setDrawColor(253, 186, 116);
+          pdf.roundedRect(pageMargin, yPos, contentWidth, 14, 3, 3, 'FD');
+          pdf.setFont('helvetica', 'normal');
           pdf.setFontSize(10);
-          pdf.text('Chart is unavailable for snapshot. Summary data is included.', 20, yPos);
+          pdf.setTextColor(154, 52, 18);
+          pdf.text('Chart is unavailable for snapshot. Summary data is included.', pageMargin + 4, yPos + 8.5);
         }
       }
-      
-      // Alerts
-      if (includeAlerts && alerts.length > 0) {
+
+      if (includeAlerts) {
         pdf.addPage();
         yPos = 20;
-        
-        pdf.setFontSize(14);
-        pdf.text('Alerts', 20, yPos);
-        
-        yPos += 10;
-        pdf.setFontSize(9);
-        
-        alerts.forEach((alert) => {
-          if (yPos > pageHeight - 30) {
-            pdf.addPage();
-            yPos = 20;
-          }
-          
-          pdf.text(`${alert.message} - ${alert.timestamp}`, 20, yPos);
-          yPos += 6;
-        });
+
+        drawSectionTitle('Threshold Status', 'Combined alerting only triggers when the three-device total exceeds the total threshold');
+
+        if (alerts.length === 0) {
+          pdf.setFillColor(220, 252, 231);
+          pdf.setDrawColor(134, 239, 172);
+          pdf.roundedRect(pageMargin, yPos, contentWidth, 16, 3, 3, 'FD');
+          pdf.setFont('helvetica', 'bold');
+          pdf.setFontSize(10);
+          pdf.setTextColor(22, 101, 52);
+          pdf.text('No active combined-threshold alert', pageMargin + 4, yPos + 6.5);
+          pdf.setFont('helvetica', 'normal');
+          pdf.setFontSize(9);
+          pdf.text(thresholdStatusText, pageMargin + 4, yPos + 12);
+        } else {
+          alerts.forEach((alert) => {
+            ensurePageSpace(20);
+            pdf.setFillColor(254, 242, 242);
+            pdf.setDrawColor(252, 165, 165);
+            pdf.roundedRect(pageMargin, yPos, contentWidth, 18, 3, 3, 'FD');
+            pdf.setFont('helvetica', 'bold');
+            pdf.setFontSize(10);
+            pdf.setTextColor(153, 27, 27);
+            pdf.text(alert.message, pageMargin + 4, yPos + 6.5);
+            pdf.setFont('helvetica', 'normal');
+            pdf.setFontSize(9);
+            pdf.text(`${alert.nodeLabel}: ${alert.value}W / ${alert.threshold}W`, pageMargin + 4, yPos + 12);
+            pdf.text(alert.timestamp, pageWidth - pageMargin - 4, yPos + 12, { align: 'right' });
+            yPos += 22;
+          });
+        }
       }
       
       pdf.save(`energy-report-${selectedMonth}-${viewMode}.pdf`);
@@ -289,7 +416,7 @@ export default function Reports() {
                   className="w-5 h-5 text-blue-600 rounded"
                 />
                 <AlertTriangle className="w-5 h-5 text-gray-600" />
-                <span className="text-sm font-medium text-gray-900">Alerts</span>
+                <span className="text-sm font-medium text-gray-900">Threshold Alerts</span>
               </label>
             </div>
           </div>
@@ -318,16 +445,31 @@ export default function Reports() {
           )}
 
           {/* Summary */}
-          <div className="p-4 bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl">
-            <h3 className="text-sm font-semibold text-gray-900 mb-3">Summary</h3>
-            <div className="grid grid-cols-3 gap-2 text-center">
+          <div className="rounded-xl border border-slate-200 bg-gradient-to-br from-slate-50 via-blue-50 to-white p-4">
+            <div className="mb-3 flex items-start justify-between gap-3">
               <div>
-                <p className="text-xs text-gray-600">Total</p>
+                <h3 className="text-sm font-semibold text-gray-900">Summary</h3>
+                <p className="mt-1 text-xs text-gray-600">Combined totals for the three monitored appliances</p>
+              </div>
+              <span className="rounded-full bg-blue-100 px-2.5 py-1 text-[11px] font-medium text-blue-700">
+                {viewMode === '7-day' ? '7-Day View' : 'Whole Month'}
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-2 text-center">
+              <div>
+                <p className="text-xs text-gray-600">Today Total</p>
+                <p className="text-lg font-bold text-gray-900">{combinedMetrics.todayKWh.toFixed(1)}</p>
+                <p className="text-xs text-gray-600">kWh</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-600">Month Total</p>
                 <p className="text-lg font-bold text-gray-900">{totalKWh.toFixed(1)}</p>
                 <p className="text-xs text-gray-600">kWh</p>
               </div>
               <div>
-                <p className="text-xs text-gray-600">Cost</p>
+                <p className="mx-auto flex min-h-[2rem] items-center justify-center text-[11px] leading-tight text-gray-600">
+                  Total Estimated Cost This Month
+                </p>
                 <p className="text-lg font-bold text-gray-900">₱{totalCost.toFixed(0)}</p>
                 <p className="text-xs text-gray-600">PHP</p>
               </div>
@@ -337,6 +479,46 @@ export default function Reports() {
                 <p className="text-xs text-gray-600">/kWh</p>
               </div>
             </div>
+          </div>
+
+          <div
+            className={`rounded-xl border p-4 ${
+              combinedMetrics.overThreshold ? 'border-red-200 bg-red-50' : 'border-emerald-200 bg-emerald-50'
+            }`}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold text-gray-900">Total Threshold Status</h3>
+                <p className="mt-1 text-xs text-gray-600">
+                  One appliance may exceed its own threshold as long as the combined load stays within the total threshold.
+                </p>
+              </div>
+              <span
+                className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+                  combinedMetrics.overThreshold ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'
+                }`}
+              >
+                {combinedMetrics.overThreshold ? 'Over Threshold' : 'Within Threshold'}
+              </span>
+            </div>
+            <div className="mt-4 grid grid-cols-1 gap-2 text-center sm:grid-cols-3">
+              <div>
+                <p className="text-xs text-gray-600">Total Threshold</p>
+                <p className="text-lg font-bold text-gray-900">{Math.round(combinedMetrics.totalThresholdW)}</p>
+                <p className="text-xs text-gray-600">W</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-600">Current Load</p>
+                <p className="text-lg font-bold text-gray-900">{Math.round(combinedMetrics.currentPowerW)}</p>
+                <p className="text-xs text-gray-600">W</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-600">{combinedMetrics.overThreshold ? 'Exceeded By' : 'Remaining'}</p>
+                <p className="text-lg font-bold text-gray-900">{Math.round(Math.abs(combinedMetrics.remainingThresholdW))}</p>
+                <p className="text-xs text-gray-600">W</p>
+              </div>
+            </div>
+            <p className="mt-3 text-xs font-medium text-gray-700">{thresholdStatusText}</p>
           </div>
           
           {/* Chart */}
@@ -429,8 +611,10 @@ export default function Reports() {
                       <span>Today: {node.todayKWh.toFixed(2)} kWh</span>
                     </div>
                     <div className="flex items-center justify-between">
-                      <span className="text-xs text-gray-600">Month Cost:</span>
-                      <span className="text-sm font-bold text-blue-600">₱{node.monthEstimatedCost.toFixed(2)}</span>
+                      <div className="flex w-full flex-col gap-1 text-xs text-gray-600 sm:flex-row sm:items-center sm:justify-between">
+                        <span className="leading-tight">Estimated Cost This Month:</span>
+                        <span className="text-sm font-bold text-blue-600">₱{node.monthEstimatedCost.toFixed(2)}</span>
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -439,20 +623,25 @@ export default function Reports() {
           )}
           
           {/* Alerts */}
-          {includeAlerts && alerts.length > 0 && (
+          {includeAlerts && (
             <div>
-              <h3 className="text-sm font-semibold text-gray-900 mb-3">Alerts ({alerts.length})</h3>
-              <div className="space-y-2">
-                {alerts.slice(0, 2).map((alert) => (
-                  <div key={alert.id} className="p-3 bg-orange-50 border border-orange-200 rounded-xl">
-                    <p className="text-xs font-medium text-gray-900">{alert.message}</p>
-                    <p className="text-xs text-gray-600 mt-1">{alert.nodeLabel} • {alert.value}W</p>
-                  </div>
-                ))}
-                {alerts.length > 2 && (
-                  <p className="text-xs text-gray-500 text-center">+{alerts.length - 2} more</p>
-                )}
-              </div>
+              <h3 className="text-sm font-semibold text-gray-900 mb-3">Threshold Alerts ({alerts.length})</h3>
+              {alerts.length > 0 ? (
+                <div className="space-y-2">
+                  {alerts.slice(0, 2).map((alert) => (
+                    <div key={alert.id} className="rounded-xl border border-orange-200 bg-orange-50 p-3">
+                      <p className="text-xs font-medium text-gray-900">{alert.message}</p>
+                      <p className="mt-1 text-xs text-gray-600">{alert.nodeLabel} • {alert.value}W / {alert.threshold}W</p>
+                      <p className="mt-1 text-[11px] text-gray-500">{alert.timestamp}</p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+                  <p className="text-xs font-medium text-emerald-800">No active combined-threshold alert</p>
+                  <p className="mt-1 text-xs text-emerald-700">{thresholdStatusText}</p>
+                </div>
+              )}
             </div>
           )}
           

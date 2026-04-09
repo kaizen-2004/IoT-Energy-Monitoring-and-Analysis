@@ -19,7 +19,15 @@ import {
   fetchDashboardViewData,
   getPHTTime,
 } from '../utils/mockData';
-import type { NodeSummary, DailyData, Alert, ComparisonData, ChartMode, ComparisonMode } from '../utils/mockData';
+import type {
+  NodeSummary,
+  DailyData,
+  Alert,
+  ComparisonData,
+  CombinedMetrics,
+  ChartMode,
+  ComparisonMode,
+} from '../utils/mockData';
 import MonthPicker from '../components/MonthPicker';
 
 const QUICK_INTERVALS = [15, 30, 60] as const;
@@ -45,6 +53,17 @@ const NODE_ACCENT_STYLES = [
   },
 ] as const;
 
+const EMPTY_COMBINED_METRICS: CombinedMetrics = {
+  todayKWh: 0,
+  monthKWh: 0,
+  todayCost: 0,
+  monthCost: 0,
+  totalThresholdW: 0,
+  currentPowerW: 0,
+  remainingThresholdW: 0,
+  overThreshold: false,
+};
+
 function shiftMonth(month: string, offset: number) {
   const [yearText, monthText] = month.split('-');
   const date = new Date(Date.UTC(Number(yearText), Number(monthText) - 1, 1));
@@ -61,6 +80,7 @@ export default function Dashboard() {
   const [chartData, setChartData] = useState<DailyData[]>([]);
   const [nodeSummaries, setNodeSummaries] = useState<NodeSummary[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [combinedMetrics, setCombinedMetrics] = useState<CombinedMetrics>(EMPTY_COMBINED_METRICS);
   const [selectedMonth, setSelectedMonth] = useState<string>(defaultMonth());
   const [rate, setRate] = useState<number>(11.5);
   const [showControls, setShowControls] = useState<boolean>(false);
@@ -88,6 +108,7 @@ export default function Dashboard() {
       setNodeSummaries(dashboard.nodeSummaries);
       setAlerts(dashboard.alerts);
       setComparisonData(dashboard.comparisonData);
+      setCombinedMetrics(dashboard.combinedMetrics);
       setLastUpdated(getPHTTime());
       setIsConnected(true);
     } catch (error) {
@@ -137,17 +158,10 @@ export default function Dashboard() {
     setSelectedMonth((current) => shiftMonth(current, 1));
   };
 
-  const { todayTotal, monthTotal, todayCostTotal, monthCostTotal } = useMemo(() => {
-    const totalToday = nodeSummaries.reduce((sum, node) => sum + node.todayKWh, 0);
-    const totalMonth = nodeSummaries.reduce((sum, node) => sum + node.monthKWh, 0);
-
-    return {
-      todayTotal: totalToday,
-      monthTotal: totalMonth,
-      todayCostTotal: totalToday * rate,
-      monthCostTotal: totalMonth * rate,
-    };
-  }, [nodeSummaries, rate]);
+  const todayTotal = combinedMetrics.todayKWh;
+  const monthTotal = combinedMetrics.monthKWh;
+  const todayCostTotal = combinedMetrics.todayCost;
+  const monthCostTotal = combinedMetrics.monthCost;
 
   const selectedMonthLabel = useMemo(
     () =>
@@ -287,27 +301,73 @@ export default function Dashboard() {
 
         <div className="mb-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
           <div className="rounded-xl bg-white/10 p-3 backdrop-blur-sm">
-            <p className="mb-1 text-xs text-blue-100">Today Total</p>
+            <p className="mb-1 flex min-h-[2.5rem] items-start text-[11px] leading-tight text-blue-100">Today Total (3 Appliances)</p>
             <p className="text-2xl font-bold">{todayTotal.toFixed(2)}</p>
             <p className="text-xs">kWh</p>
           </div>
 
           <div className="rounded-xl bg-white/10 p-3 backdrop-blur-sm">
-            <p className="mb-1 text-xs text-blue-100">Cost Today</p>
+            <p className="mb-1 flex min-h-[2.5rem] items-start text-[11px] leading-tight text-blue-100">
+              Total Estimated Cost Today
+            </p>
             <p className="text-2xl font-bold">₱{todayCostTotal.toFixed(2)}</p>
             <p className="text-xs">PHP</p>
           </div>
 
           <div className="rounded-xl bg-white/10 p-3 backdrop-blur-sm">
-            <p className="mb-1 text-xs text-blue-100">Month Total</p>
+            <p className="mb-1 flex min-h-[2.5rem] items-start text-[11px] leading-tight text-blue-100">
+              Monthly Total (3 Appliances)
+            </p>
             <p className="text-2xl font-bold">{monthTotal.toFixed(2)}</p>
             <p className="text-xs">kWh</p>
           </div>
 
           <div className="rounded-xl bg-white/10 p-3 backdrop-blur-sm">
-            <p className="mb-1 text-xs text-blue-100">Month Cost</p>
+            <p className="mb-1 flex min-h-[2.5rem] items-start text-[11px] leading-tight text-blue-100">
+              Total Estimated Cost This Month
+            </p>
             <p className="text-2xl font-bold">₱{monthCostTotal.toFixed(2)}</p>
             <p className="text-xs">PHP</p>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-white/15 bg-slate-950/15 p-4 backdrop-blur-sm">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-[0.2em] text-blue-100/80">Combined Threshold</p>
+              <h2 className="mt-1 text-lg font-semibold text-white">3-Appliance Load Budget</h2>
+              <p className="mt-1 text-xs text-blue-100/90">
+                One appliance can go above its own threshold as long as the combined load stays within the total limit.
+              </p>
+            </div>
+            <span
+              className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
+                combinedMetrics.overThreshold
+                  ? 'bg-red-500/20 text-red-100'
+                  : 'bg-emerald-500/20 text-emerald-100'
+              }`}
+            >
+              {combinedMetrics.overThreshold ? 'Over Threshold' : 'Within Threshold'}
+            </span>
+          </div>
+
+          <div className="mt-4 grid gap-3 sm:grid-cols-3">
+            <div className="rounded-xl bg-white/10 p-3">
+              <p className="text-xs text-blue-100">Total Threshold</p>
+              <p className="mt-1 text-2xl font-bold text-white">{Math.round(combinedMetrics.totalThresholdW)}W</p>
+            </div>
+            <div className="rounded-xl bg-white/10 p-3">
+              <p className="text-xs text-blue-100">Current Combined Load</p>
+              <p className="mt-1 text-2xl font-bold text-white">{Math.round(combinedMetrics.currentPowerW)}W</p>
+            </div>
+            <div className="rounded-xl bg-white/10 p-3">
+              <p className="text-xs text-blue-100">
+                {combinedMetrics.overThreshold ? 'Exceeded By' : 'Remaining Capacity'}
+              </p>
+              <p className="mt-1 text-2xl font-bold text-white">
+                {Math.round(Math.abs(combinedMetrics.remainingThresholdW))}W
+              </p>
+            </div>
           </div>
         </div>
 
@@ -519,7 +579,7 @@ export default function Dashboard() {
             {alerts.length === 0 ? (
               <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-6 text-center">
                 <p className="text-sm font-medium text-slate-700">No active alerts</p>
-                <p className="mt-1 text-xs text-slate-500">All monitored devices are within threshold.</p>
+                <p className="mt-1 text-xs text-slate-500">Combined load is within the total threshold budget.</p>
               </div>
             ) : (
               <div className="space-y-2">
@@ -577,7 +637,7 @@ export default function Dashboard() {
                       </div>
 
                       <div className="rounded-xl bg-gray-50 p-3">
-                        <p className="mb-1 text-xs text-gray-600">Cost Today</p>
+                        <p className="mb-1 min-h-[2rem] text-xs leading-tight text-gray-600">Estimated Cost Today</p>
                         <p className="text-lg font-semibold text-gray-900">₱{node.estimatedCost.toFixed(2)}</p>
                       </div>
 
@@ -588,7 +648,7 @@ export default function Dashboard() {
                     </div>
 
                     <div className={`${accent.estimateWrap} rounded-xl border p-3`}>
-                      <p className="mb-1 text-xs text-gray-700">Month Est. Cost</p>
+                      <p className="mb-1 min-h-[2rem] text-xs leading-tight text-gray-700">Estimated Cost This Month</p>
                       <p className={`${accent.estimateText} text-xl font-bold`}>₱{node.monthEstimatedCost.toFixed(2)}</p>
                     </div>
 
