@@ -29,8 +29,10 @@ static const uint32_t TRANSMIT_INTERVAL_MS = 5000;
 static const float ADC_REF_V = 3.3f;
 static const int ADC_MAX = 4095;
 static const int ADC_MIDPOINT = 2048;
-static const float BURDEN_OHMS = 100.0f;
+static const float BURDEN_OHMS = 22.0f;
 static const float CT_RATIO = 2000.0f;
+static const float ZERO_CURRENT_OFFSET_A = 0.56f;
+static const float MIN_POWER_NOISE_W = 15.0f;
 static const float CALIBRATION_FACTORS[NUM_CHANNELS] = {1.00f};
 
 // Threshold (W) for abnormal/alert tagging

@@ -51,20 +51,15 @@ static void connectWiFi() {
 
 static float readCurrentRmsA(int pin, float calibrationFactor) {
   const float adcToVolt = ADC_REF_V / (float)ADC_MAX;
+  float sum = 0.0f;
   float sumSquares = 0.0f;
   uint32_t samples = 0;
   uint32_t startMs = millis();
 
   while (millis() - startMs < SAMPLE_WINDOW_MS) {
     int raw = analogRead(pin);
-    float centered = (float)(raw - ADC_MIDPOINT);
-    float sensedV = centered * adcToVolt;
-
-    // Simplified conversion placeholder:
-    // Replace with your exact analog front-end transfer function.
-    float currentA = (sensedV / BURDEN_OHMS) * CT_RATIO;
-
-    sumSquares += currentA * currentA;
+    sum += (float)raw;
+    sumSquares += (float)raw * (float)raw;
     samples++;
   }
 
@@ -72,8 +67,14 @@ static float readCurrentRmsA(int pin, float calibrationFactor) {
     return 0.0f;
   }
 
-  float rms = sqrtf(sumSquares / (float)samples);
-  return rms * calibrationFactor;
+  const float avgRaw = sum / (float)samples;
+  const float variance = fmaxf(0.0f, (sumSquares / (float)samples) - (avgRaw * avgRaw));
+  const float acRmsVolts = sqrtf(variance) * adcToVolt;
+
+  // Convert the AC burden voltage into primary current.
+  const float currentA = (acRmsVolts / BURDEN_OHMS) * CT_RATIO;
+  const float adjustedCurrentA = fmaxf(0.0f, currentA - ZERO_CURRENT_OFFSET_A);
+  return adjustedCurrentA * calibrationFactor;
 }
 
 static String jsonEscape(const char* input) {
@@ -134,6 +135,7 @@ void setup() {
   Serial.print("Node: ");
   Serial.println(NODE_ID);
   analogReadResolution(12);
+  analogSetPinAttenuation(SENSOR_PINS[0], ADC_11db);
   connectWiFi();
   lastLoopMillis = millis();
   lastTransmitMillis = millis();
@@ -155,6 +157,12 @@ void loop() {
   for (int ch = 0; ch < NUM_CHANNELS; ch++) {
     float currentA = readCurrentRmsA(SENSOR_PINS[ch], CALIBRATION_FACTORS[ch]);
     float powerW = VOLTAGE_REF_V * currentA;
+
+    if (powerW < MIN_POWER_NOISE_W) {
+      currentA = 0.0f;
+      powerW = 0.0f;
+    }
+
     bool abnormal = powerW > POWER_THRESHOLDS_W[ch];
 
     energyWh[ch] += powerW * deltaHours;
