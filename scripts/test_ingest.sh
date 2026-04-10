@@ -5,22 +5,23 @@ API_BASE="${1:-http://localhost:8080}"
 ENDPOINT="${API_BASE%/}/api/readings"
 
 now_iso() {
-  date -u +"%Y-%m-%dT%H:%M:%SZ"
+	date -u +"%Y-%m-%dT%H:%M:%SZ"
 }
 
 post_sample() {
-  local appliance_id="$1"
-  local appliance_name="$2"
-  local current="$3"
-  local voltage="$4"
-  local power="$5"
-  local threshold="$6"
-  local abnormal="$7"
+	local node_id="$1"
+	local appliance_id="$2"
+	local appliance_name="$3"
+	local current="$4"
+	local voltage="$5"
+	local power="$6"
+	local threshold="$7"
+	local abnormal="$8"
 
-  curl -sS -X POST "${ENDPOINT}" \
-    -H "Content-Type: application/json" \
-    -d "{
-      \"nodeId\": \"node-01\",
+	curl -sS -X POST "${ENDPOINT}" \
+		-H "Content-Type: application/json" \
+		-d "{
+      \"nodeId\": \"${node_id}\",
       \"applianceId\": \"${appliance_id}\",
       \"applianceName\": \"${appliance_name}\",
       \"currentRmsA\": ${current},
@@ -32,17 +33,16 @@ post_sample() {
       \"abnormal\": ${abnormal},
       \"timestamp\": \"$(now_iso)\"
     }"
-  echo
+	echo
 }
 
 echo "Posting sample readings to ${ENDPOINT}"
 
-post_sample "appliance-01" "electric-fan" 0.35 230.0 80.5 250.0 false
-post_sample "appliance-02" "rice-cooker" 2.90 230.0 667.0 1200.0 false
-post_sample "appliance-03" "television" 1.20 230.0 276.0 250.0 true
+post_sample "node-01" "appliance-01" "electric-fan" 2.30 230.0 529.0 250.0 false
+post_sample "node-02" "appliance-02" "rice-cooker" 4.00 230.0 920.0 1200.0 false
+post_sample "node-03" "appliance-03" "television" 2.90 230.0 667.0 250.0 false
 
 echo "Done. Check:"
 echo "  ${API_BASE%/}/api/readings?limit=20"
 echo "  ${API_BASE%/}/api/alerts?limit=20"
 echo "  ${API_BASE%/}/api/summary?windowMinutes=60"
-
