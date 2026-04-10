@@ -94,6 +94,12 @@ export default function Reports() {
       const pageHeight = pdf.internal.pageSize.getHeight();
       const pageMargin = 16;
       const contentWidth = pageWidth - pageMargin * 2;
+      const brandBlue: [number, number, number] = [37, 99, 235];
+      const brandSky: [number, number, number] = [14, 165, 233];
+      const ink: [number, number, number] = [15, 23, 42];
+      const muted: [number, number, number] = [100, 116, 139];
+      const border: [number, number, number] = [226, 232, 240];
+      const paper: [number, number, number] = [248, 250, 252];
       let yPos = 18;
       let chartSnapshotUnavailable = false;
 
@@ -106,65 +112,118 @@ export default function Reports() {
         yPos = 20;
       };
 
-      const drawSectionTitle = (title: string, subtitle?: string) => {
-        ensurePageSpace(subtitle ? 16 : 10);
+      const drawPageFooter = () => {
+        const pageCount = pdf.getNumberOfPages();
+        const pageNumber = pdf.getCurrentPageInfo().pageNumber;
+        pdf.setDrawColor(border[0], border[1], border[2]);
+        pdf.line(pageMargin, pageHeight - 10, pageWidth - pageMargin, pageHeight - 10);
+        pdf.setFont('helvetica', 'normal');
+        pdf.setFontSize(8);
+        pdf.setTextColor(muted[0], muted[1], muted[2]);
+        pdf.text('IoT Energy Monitor', pageMargin, pageHeight - 6);
+        pdf.text(`Page ${pageNumber} of ${pageCount}`, pageWidth - pageMargin, pageHeight - 6, { align: 'right' });
+      };
+
+      const decoratePage = () => {
+        pdf.setFillColor(243, 248, 255);
+        pdf.circle(pageWidth - 18, 16, 14, 'F');
+        pdf.setFillColor(232, 244, 255);
+        pdf.circle(pageWidth - 32, 10, 8, 'F');
+      };
+
+      const addStyledPage = () => {
+        pdf.addPage();
+        yPos = 20;
+        decoratePage();
+      };
+
+      const drawMetaPill = (x: number, y: number, text: string, fill: [number, number, number], textColor: [number, number, number]) => {
+        const width = Math.max(26, pdf.getTextWidth(text) + 10);
+        pdf.setFillColor(fill[0], fill[1], fill[2]);
+        pdf.roundedRect(x, y, width, 7, 3.5, 3.5, 'F');
         pdf.setFont('helvetica', 'bold');
-        pdf.setFontSize(13);
-        pdf.setTextColor(15, 23, 42);
+        pdf.setFontSize(8);
+        pdf.setTextColor(textColor[0], textColor[1], textColor[2]);
+        pdf.text(text, x + 5, y + 4.6);
+        return width;
+      };
+
+      const drawSectionTitle = (title: string, subtitle?: string) => {
+        ensurePageSpace(subtitle ? 18 : 12);
+        pdf.setFont('helvetica', 'bold');
+        pdf.setFontSize(7.5);
+        pdf.setTextColor(brandBlue[0], brandBlue[1], brandBlue[2]);
+        pdf.text('REPORT SECTION', pageMargin, yPos);
+        yPos += 4;
+        pdf.setFont('helvetica', 'bold');
+        pdf.setFontSize(14);
+        pdf.setTextColor(ink[0], ink[1], ink[2]);
         pdf.text(title, pageMargin, yPos);
 
         if (subtitle) {
           pdf.setFont('helvetica', 'normal');
           pdf.setFontSize(9);
-          pdf.setTextColor(100, 116, 139);
+          pdf.setTextColor(muted[0], muted[1], muted[2]);
           pdf.text(subtitle, pageMargin, yPos + 5);
           yPos += 12;
         } else {
           yPos += 7;
         }
 
-        pdf.setDrawColor(226, 232, 240);
+        pdf.setDrawColor(border[0], border[1], border[2]);
         pdf.line(pageMargin, yPos, pageWidth - pageMargin, yPos);
         yPos += 6;
       };
 
       const drawMetricCard = (x: number, y: number, label: string, value: string, accent: [number, number, number]) => {
         const cardWidth = (contentWidth - 6) / 2;
-        const cardHeight = 26;
+        const cardHeight = 30;
         const labelLines = pdf.splitTextToSize(label, cardWidth - 12);
 
-        pdf.setFillColor(248, 250, 252);
-        pdf.setDrawColor(226, 232, 240);
-        pdf.roundedRect(x, y, cardWidth, cardHeight, 3, 3, 'FD');
+        pdf.setFillColor(255, 255, 255);
+        pdf.setDrawColor(border[0], border[1], border[2]);
+        pdf.roundedRect(x, y, cardWidth, cardHeight, 4, 4, 'FD');
         pdf.setFillColor(accent[0], accent[1], accent[2]);
-        pdf.roundedRect(x, y, 4, cardHeight, 3, 3, 'F');
+        pdf.roundedRect(x, y, 5, cardHeight, 4, 4, 'F');
         pdf.setFont('helvetica', 'normal');
         pdf.setFontSize(8);
-        pdf.setTextColor(100, 116, 139);
-        pdf.text(labelLines, x + 8, y + 6.5);
+        pdf.setTextColor(muted[0], muted[1], muted[2]);
+        pdf.text(labelLines, x + 10, y + 7.5);
         pdf.setFont('helvetica', 'bold');
-        pdf.setFontSize(12);
-        pdf.setTextColor(15, 23, 42);
-        pdf.text(value, x + 8, y + 20.5);
+        pdf.setFontSize(14);
+        pdf.setTextColor(ink[0], ink[1], ink[2]);
+        pdf.text(value, x + 10, y + 23);
       };
 
-      pdf.setFillColor(15, 23, 42);
-      pdf.roundedRect(pageMargin, yPos, contentWidth, 30, 5, 5, 'F');
+      decoratePage();
+      pdf.setFillColor(ink[0], ink[1], ink[2]);
+      pdf.roundedRect(pageMargin, yPos, contentWidth, 36, 6, 6, 'F');
+      pdf.setFillColor(brandBlue[0], brandBlue[1], brandBlue[2]);
+      pdf.roundedRect(pageWidth - pageMargin - 46, yPos + 5, 38, 26, 5, 5, 'F');
       pdf.setFont('helvetica', 'bold');
-      pdf.setFontSize(20);
+      pdf.setFontSize(7.5);
       pdf.setTextColor(255, 255, 255);
-      pdf.text('Energy Consumption Report', pageMargin + 6, yPos + 11);
+      pdf.text('MONTHLY ENERGY DOSSIER', pageMargin + 6, yPos + 8);
+
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(21);
+      pdf.text('Energy Consumption Report', pageMargin + 6, yPos + 16.5);
 
       pdf.setFont('helvetica', 'normal');
       pdf.setFontSize(10);
       const generatedDate = new Date().toLocaleString('en-PH', { timeZone: 'Asia/Manila' });
-      pdf.text(`Generated: ${generatedDate}`, pageMargin + 6, yPos + 19);
-      pdf.text(`Period: ${selectedMonthLabel}`, pageMargin + 6, yPos + 25);
-      pdf.text(`View: ${viewMode === '7-day' ? '7-Day Trend' : 'Whole Month'}`, pageWidth - pageMargin - 6, yPos + 25, {
-        align: 'right',
-      });
+      pdf.text(`Generated: ${generatedDate}`, pageMargin + 6, yPos + 23);
+      const periodPillWidth = drawMetaPill(pageMargin + 6, yPos + 26, selectedMonthLabel, [219, 234, 254], [30, 64, 175]);
+      drawMetaPill(pageMargin + 10 + periodPillWidth, yPos + 26, viewMode === '7-day' ? '7-Day Trend' : 'Whole Month', [224, 242, 254], [12, 74, 110]);
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(11);
+      pdf.text('Export', pageWidth - pageMargin - 27, yPos + 15, { align: 'center' });
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(8.5);
+      pdf.text('PDF', pageWidth - pageMargin - 27, yPos + 21, { align: 'center' });
+      pdf.text('ready', pageWidth - pageMargin - 27, yPos + 26, { align: 'center' });
 
-      yPos += 38;
+      yPos += 44;
       drawSectionTitle('Summary Snapshot', 'Combined totals for the three monitored appliances');
 
       const cardGap = 6;
@@ -172,18 +231,18 @@ export default function Reports() {
       const secondColumnX = pageMargin + ((contentWidth - cardGap) / 2) + cardGap;
       drawMetricCard(firstColumnX, yPos, 'Today Total', `${combinedMetrics.todayKWh.toFixed(2)} kWh`, [59, 130, 246]);
       drawMetricCard(secondColumnX, yPos, 'Month Total', `${totalKWh.toFixed(2)} kWh`, [37, 99, 235]);
-      yPos += 30;
+      yPos += 34;
       drawMetricCard(firstColumnX, yPos, 'Total Estimated Cost This Month', `PHP ${totalCost.toFixed(2)}`, [14, 165, 233]);
       drawMetricCard(secondColumnX, yPos, 'Rate', `PHP ${rate.toFixed(2)}/kWh`, [99, 102, 241]);
-      yPos += 30;
+      yPos += 34;
       drawMetricCard(firstColumnX, yPos, 'Total Threshold', `${Math.round(combinedMetrics.totalThresholdW)} W`, [245, 158, 11]);
       drawMetricCard(secondColumnX, yPos, 'Current Load', `${Math.round(combinedMetrics.currentPowerW)} W`, [249, 115, 22]);
-      yPos += 32;
+      yPos += 36;
 
       ensurePageSpace(14);
       pdf.setFillColor(combinedMetrics.overThreshold ? 254 : 220, combinedMetrics.overThreshold ? 226 : 252, combinedMetrics.overThreshold ? 226 : 231);
       pdf.setDrawColor(combinedMetrics.overThreshold ? 248 : 134, combinedMetrics.overThreshold ? 113 : 239, combinedMetrics.overThreshold ? 113 : 172);
-      pdf.roundedRect(pageMargin, yPos, contentWidth, 12, 3, 3, 'FD');
+      pdf.roundedRect(pageMargin, yPos, contentWidth, 14, 4, 4, 'FD');
       pdf.setFont('helvetica', 'bold');
       pdf.setFontSize(10);
       pdf.setTextColor(combinedMetrics.overThreshold ? 153 : 22, combinedMetrics.overThreshold ? 27 : 101, combinedMetrics.overThreshold ? 27 : 52);
@@ -192,39 +251,42 @@ export default function Reports() {
           ? `Threshold Status: Over by ${Math.round(Math.abs(combinedMetrics.remainingThresholdW))}W`
           : `Threshold Status: Within limit with ${Math.round(combinedMetrics.remainingThresholdW)}W remaining`,
         pageMargin + 4,
-        yPos + 7.5
+        yPos + 8.4
       );
-      yPos += 18;
+      yPos += 20;
 
       if (includeNodeTable) {
         drawSectionTitle('Devices', 'Monthly totals, current load, and cost estimates per appliance');
 
         nodeSummaries.forEach((node, index) => {
-          ensurePageSpace(24);
+          ensurePageSpace(30);
           const accent =
-            index === 0 ? [243, 232, 255] : index === 1 ? [255, 237, 213] : [207, 250, 254];
+            index === 0 ? [147, 51, 234] : index === 1 ? [249, 115, 22] : [8, 145, 178];
 
+          pdf.setFillColor(255, 255, 255);
+          pdf.setDrawColor(border[0], border[1], border[2]);
+          pdf.roundedRect(pageMargin, yPos, contentWidth, 24, 4, 4, 'FD');
           pdf.setFillColor(accent[0], accent[1], accent[2]);
-          pdf.setDrawColor(226, 232, 240);
-          pdf.roundedRect(pageMargin, yPos, contentWidth, 22, 3, 3, 'FD');
+          pdf.roundedRect(pageMargin, yPos, 6, 24, 4, 4, 'F');
           pdf.setFont('helvetica', 'bold');
+          pdf.setFontSize(10.5);
+          pdf.setTextColor(ink[0], ink[1], ink[2]);
+          pdf.text(node.label, pageMargin + 10, yPos + 7);
           pdf.setFontSize(10);
-          pdf.setTextColor(15, 23, 42);
-          pdf.text(node.label, pageMargin + 4, yPos + 6);
-          pdf.text(`${node.monthKWh.toFixed(2)} kWh`, pageWidth - pageMargin - 4, yPos + 6, { align: 'right' });
+          pdf.text(`${node.monthKWh.toFixed(2)} kWh`, pageWidth - pageMargin - 4, yPos + 7, { align: 'right' });
           pdf.setFont('helvetica', 'normal');
           pdf.setFontSize(8.5);
           pdf.setTextColor(71, 85, 105);
-          pdf.text(`Current Load: ${Math.round(node.currentPower)}W`, pageMargin + 4, yPos + 11.5);
-          pdf.text(`Today: ${node.todayKWh.toFixed(2)} kWh`, pageMargin + 56, yPos + 11.5);
-          pdf.text(`Estimated Cost This Month: PHP ${node.monthEstimatedCost.toFixed(2)}`, pageMargin + 4, yPos + 17);
-          yPos += 26;
+          pdf.text(`Device ID: ${node.deviceId}`, pageMargin + 10, yPos + 12.5);
+          pdf.text(`Current Load: ${Math.round(node.currentPower)}W`, pageMargin + 10, yPos + 18);
+          pdf.text(`Today: ${node.todayKWh.toFixed(2)} kWh`, pageMargin + 58, yPos + 18);
+          pdf.text(`Estimated Cost This Month: PHP ${node.monthEstimatedCost.toFixed(2)}`, pageMargin + 10, yPos + 23);
+          yPos += 28;
         });
       }
 
       if (includeCharts) {
-        pdf.addPage();
-        yPos = 20;
+        addStyledPage();
 
         drawSectionTitle(
           viewMode === '7-day' ? '7-Day Trend' : 'Whole Month Trend',
@@ -250,10 +312,18 @@ export default function Reports() {
             const imgHeight = (canvas.height * imgWidth) / canvas.width;
             const renderedHeight = Math.min(imgHeight, 120);
             pdf.setFillColor(255, 255, 255);
-            pdf.setDrawColor(226, 232, 240);
-            pdf.roundedRect(pageMargin, yPos, contentWidth, renderedHeight + 8, 4, 4, 'FD');
-            pdf.addImage(imgData, 'PNG', pageMargin + 4, yPos + 4, imgWidth, renderedHeight);
-            yPos += renderedHeight + 14;
+            pdf.setDrawColor(border[0], border[1], border[2]);
+            pdf.roundedRect(pageMargin, yPos, contentWidth, renderedHeight + 18, 5, 5, 'FD');
+            pdf.setFont('helvetica', 'bold');
+            pdf.setFontSize(9);
+            pdf.setTextColor(ink[0], ink[1], ink[2]);
+            pdf.text('Chart Snapshot', pageMargin + 4, yPos + 6);
+            pdf.setFont('helvetica', 'normal');
+            pdf.setFontSize(8);
+            pdf.setTextColor(muted[0], muted[1], muted[2]);
+            pdf.text('Exported from the on-screen report preview.', pageMargin + 4, yPos + 10.5);
+            pdf.addImage(imgData, 'PNG', pageMargin + 4, yPos + 14, imgWidth, renderedHeight);
+            yPos += renderedHeight + 24;
           } catch (chartError) {
             chartSnapshotUnavailable = true;
             console.error('Chart snapshot failed:', chartError);
@@ -278,39 +348,44 @@ export default function Reports() {
       }
 
       if (includeAlerts) {
-        pdf.addPage();
-        yPos = 20;
+        addStyledPage();
 
         drawSectionTitle('Threshold Status', 'Combined alerting only triggers when the three-device total exceeds the total threshold');
 
         if (alerts.length === 0) {
           pdf.setFillColor(220, 252, 231);
           pdf.setDrawColor(134, 239, 172);
-          pdf.roundedRect(pageMargin, yPos, contentWidth, 16, 3, 3, 'FD');
+          pdf.roundedRect(pageMargin, yPos, contentWidth, 18, 4, 4, 'FD');
           pdf.setFont('helvetica', 'bold');
           pdf.setFontSize(10);
           pdf.setTextColor(22, 101, 52);
-          pdf.text('No active combined-threshold alert', pageMargin + 4, yPos + 6.5);
+          pdf.text('No active combined-threshold alert', pageMargin + 4, yPos + 7.5);
           pdf.setFont('helvetica', 'normal');
           pdf.setFontSize(9);
-          pdf.text(thresholdStatusText, pageMargin + 4, yPos + 12);
+          pdf.text(thresholdStatusText, pageMargin + 4, yPos + 13);
         } else {
           alerts.forEach((alert) => {
-            ensurePageSpace(20);
+            ensurePageSpace(24);
             pdf.setFillColor(254, 242, 242);
             pdf.setDrawColor(252, 165, 165);
-            pdf.roundedRect(pageMargin, yPos, contentWidth, 18, 3, 3, 'FD');
+            pdf.roundedRect(pageMargin, yPos, contentWidth, 20, 4, 4, 'FD');
             pdf.setFont('helvetica', 'bold');
             pdf.setFontSize(10);
             pdf.setTextColor(153, 27, 27);
-            pdf.text(alert.message, pageMargin + 4, yPos + 6.5);
+            pdf.text(alert.message, pageMargin + 4, yPos + 7.5);
             pdf.setFont('helvetica', 'normal');
             pdf.setFontSize(9);
-            pdf.text(`${alert.nodeLabel}: ${alert.value}W / ${alert.threshold}W`, pageMargin + 4, yPos + 12);
-            pdf.text(alert.timestamp, pageWidth - pageMargin - 4, yPos + 12, { align: 'right' });
-            yPos += 22;
+            pdf.text(`${alert.nodeLabel}: ${alert.value}W / ${alert.threshold}W`, pageMargin + 4, yPos + 13.5);
+            pdf.text(alert.timestamp, pageWidth - pageMargin - 4, yPos + 13.5, { align: 'right' });
+            yPos += 24;
           });
         }
+      }
+
+      const totalPages = pdf.getNumberOfPages();
+      for (let pageNumber = 1; pageNumber <= totalPages; pageNumber += 1) {
+        pdf.setPage(pageNumber);
+        drawPageFooter();
       }
       
       pdf.save(`energy-report-${selectedMonth}-${viewMode}.pdf`);
