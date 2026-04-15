@@ -1,80 +1,87 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
-#include <math.h>
+#include <HardwareSerial.h>
 
 #include "config.h"
 
+static HardwareSerial nanoSerial(1);
+
 static float energyWh[NUM_CHANNELS] = {0};
+static float smoothedPowerW[NUM_CHANNELS] = {0};
+static bool applianceOnState[NUM_CHANNELS] = {false};
 static uint32_t lastLoopMillis = 0;
 static uint32_t lastTransmitMillis = 0;
 static uint32_t lastWifiConnectAttemptMs = 0;
 static wl_status_t lastWifiStatus = WL_IDLE_STATUS;
+static float powerHistory[NUM_CHANNELS][SMOOTHING_WINDOW_SIZE] = {{0}};
+static int powerHistoryIndex[NUM_CHANNELS] = {0};
+static bool powerHistoryFilled[NUM_CHANNELS] = {false};
+static String lastNanoReading = "";
+static uint32_t lastDebugMs = 0;
 
 static void connectWiFi() {
   wl_status_t status = WiFi.status();
-  if (status != lastWifiStatus) {
-    Serial.print("WiFi status: ");
-    Serial.println((int)status);
-    lastWifiStatus = status;
-  }
-
+  
+  // Already connected - skip
   if (status == WL_CONNECTED) {
     return;
   }
-
-  // Avoid restarting STA config while a previous connection attempt is still in flight.
-  if (millis() - lastWifiConnectAttemptMs < 10000) {
+  
+  // Disconnected or never connected - retry
+  // Avoid frequent retries - only retry every 30 seconds
+  if (millis() - lastWifiConnectAttemptMs < 30000) {
     return;
+  }
+  
+  // If previously failed, reset WiFi first
+  if (lastWifiStatus == WL_CONNECT_FAILED || status == WL_CONNECT_FAILED) {
+    WiFi.disconnect(true);
+    delay(100);
   }
 
   lastWifiConnectAttemptMs = millis();
+  lastWifiStatus = status;
 
   WiFi.mode(WIFI_STA);
   WiFi.setTxPower(WIFI_POWER_8_5dBm);
   Serial.print("Connecting WiFi to ");
   Serial.println(WIFI_SSID);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-
-  uint8_t attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+  lastWifiStatus = WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  
+  // Wait up to 10 seconds for connection
+  for (uint8_t attempts = 0; attempts < 20 && WiFi.status() != WL_CONNECTED; attempts++) {
     delay(500);
-    attempts++;
+    if (WiFi.status() == WL_CONNECTED) {
+      Serial.print("WiFi connected, IP: ");
+      Serial.println(WiFi.localIP());
+      lastWifiStatus = WL_CONNECTED;
+      return;
+    }
   }
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.print("WiFi connected, IP: ");
-    Serial.println(WiFi.localIP());
-    lastWifiStatus = WL_CONNECTED;
-  } else {
-    Serial.println("WiFi connect timeout");
-  }
+  
+  Serial.println("WiFi connect timeout");
 }
 
-static float readCurrentRmsA(int pin, float calibrationFactor) {
-  const float adcToVolt = ADC_REF_V / (float)ADC_MAX;
-  float sum = 0.0f;
-  float sumSquares = 0.0f;
-  uint32_t samples = 0;
-  uint32_t startMs = millis();
+static float updateSmoothedPower(uint8_t channel, float estimatedPowerW) {
+  powerHistory[channel][powerHistoryIndex[channel]] = estimatedPowerW;
+  powerHistoryIndex[channel]++;
 
-  while (millis() - startMs < SAMPLE_WINDOW_MS) {
-    int raw = analogRead(pin);
-    sum += (float)raw;
-    sumSquares += (float)raw * (float)raw;
-    samples++;
+  if (powerHistoryIndex[channel] >= SMOOTHING_WINDOW_SIZE) {
+    powerHistoryIndex[channel] = 0;
+    powerHistoryFilled[channel] = true;
   }
 
-  if (samples == 0) {
+  float sum = 0.0f;
+  const int count = powerHistoryFilled[channel] ? SMOOTHING_WINDOW_SIZE : powerHistoryIndex[channel];
+  if (count <= 0) {
     return 0.0f;
   }
 
-  const float avgRaw = sum / (float)samples;
-  const float variance = fmaxf(0.0f, (sumSquares / (float)samples) - (avgRaw * avgRaw));
-  const float acRmsVolts = sqrtf(variance) * adcToVolt;
+  for (int i = 0; i < count; i++) {
+    sum += powerHistory[channel][i];
+  }
 
-  // Convert the AC burden voltage into primary current.
-  const float currentA = (acRmsVolts / BURDEN_OHMS) * CT_RATIO;
-  const float adjustedCurrentA = fmaxf(0.0f, currentA - ZERO_CURRENT_OFFSET_A);
-  return adjustedCurrentA * calibrationFactor;
+  return sum / (float)count;
 }
 
 static String jsonEscape(const char* input) {
@@ -91,8 +98,8 @@ static String jsonEscape(const char* input) {
 
 static void postReading(
   uint8_t channel,
-  float currentRmsA,
   float powerW,
+  float currentA,
   float energyWhValue,
   bool abnormal
 ) {
@@ -108,7 +115,7 @@ static void postReading(
   payload += "\"nodeId\":\"" + jsonEscape(NODE_ID) + "\",";
   payload += "\"applianceId\":\"" + jsonEscape(APPLIANCE_IDS[channel]) + "\",";
   payload += "\"applianceName\":\"" + jsonEscape(APPLIANCE_NAMES[channel]) + "\",";
-  payload += "\"currentRmsA\":" + String(currentRmsA, 4) + ",";
+  payload += "\"currentRmsA\":" + String(currentA, 4) + ",";
   payload += "\"voltageRefV\":" + String(VOLTAGE_REF_V, 2) + ",";
   payload += "\"powerW\":" + String(powerW, 2) + ",";
   payload += "\"energyWh\":" + String(energyWhValue, 4) + ",";
@@ -127,15 +134,46 @@ static void postReading(
   http.end();
 }
 
+static bool parseNanoReading(const String& line, float& powerW, float& currentA, bool& applianceOn) {
+  // Expected format: P123.45,C0.54,SON or P0.00,C0.00,SOFF
+  if (line.startsWith("P") && line.indexOf(",C") > 0 && line.indexOf(",S") > 0) {
+    int pIndex = 1;
+    int cIndex = line.indexOf(",C");
+    int sIndex = line.indexOf(",S");
+    
+    String pStr = line.substring(pIndex, cIndex);
+    String cStr = line.substring(cIndex + 2, sIndex);
+    String state = line.substring(sIndex + 2);
+    
+    powerW = pStr.toFloat();
+    currentA = cStr.toFloat();
+    applianceOn = (state == "ON");
+    
+    return true;
+  }
+  return false;
+}
+
 void setup() {
   Serial.begin(115200);
   delay(500);
   Serial.println();
-  Serial.println("ESP32 energy monitor starting");
+  Serial.println("ESP32 energy monitor starting (Nano serial)");
   Serial.print("Node: ");
   Serial.println(NODE_ID);
-  analogReadResolution(12);
-  analogSetPinAttenuation(SENSOR_PINS[0], ADC_11db);
+  Serial.print("Nano RX pin: GPIO");
+  Serial.println(NANO_SERIAL_RX_PIN);
+  Serial.print("Nano TX pin: GPIO");
+  Serial.println(NANO_SERIAL_TX_PIN);
+
+  Serial.println("Initializing Nano serial on GPIO5...");
+  nanoSerial.begin(115200, SERIAL_8N1, NANO_SERIAL_RX_PIN, NANO_SERIAL_TX_PIN);
+  
+  // Give Nano time to start and send first reading
+  delay(1000);
+
+  Serial.print("Setup complete. Waiting for Nano data...");
+  
   connectWiFi();
   lastLoopMillis = millis();
   lastTransmitMillis = millis();
@@ -154,22 +192,60 @@ void loop() {
   static float latestPowerW[NUM_CHANNELS] = {0};
   static bool latestAbnormal[NUM_CHANNELS] = {false};
 
-  for (int ch = 0; ch < NUM_CHANNELS; ch++) {
-    float currentA = readCurrentRmsA(SENSOR_PINS[ch], CALIBRATION_FACTORS[ch]);
-    float powerW = VOLTAGE_REF_V * currentA;
+  // Debug: check if Nano is sending (throttled) - DISABLED for production
+  /*
+  if (nowMs - lastDebugMs > 2000) {
+    lastDebugMs = nowMs;
+    Serial.print("Nano avail:");
+    Serial.print(nanoSerial.available());
+    Serial.print(" ");
+  }
+  */
+  
+  while (nanoSerial.available()) {
+    char c = nanoSerial.read();
+    // Debug output - DISABLED
+    // Serial.print("RX:");
+    // Serial.print((int)c);
+    // Serial.print(":");
+    if (c == '\n' || c == '\r') {
+      if (lastNanoReading.length() > 0) {
+        float powerW = 0;
+        float currentA = 0;
+        bool applianceOn = false;
+        
+        if (parseNanoReading(lastNanoReading, powerW, currentA, applianceOn)) {
+          // Only print when state changes or on transmit
+          static bool lastState = false;
+          if (applianceOn != lastState) {
+            Serial.print("State: ");
+            Serial.println(applianceOn ? "ON" : "OFF");
+            lastState = applianceOn;
+          }
+          
+          float smoothedPower = updateSmoothedPower(0, powerW);
+          
+          if (smoothedPower < MIN_POWER_NOISE_W) {
+            powerW = 0.0f;
+            currentA = 0.0f;
+            smoothedPower = 0.0f;
+          }
 
-    if (powerW < MIN_POWER_NOISE_W) {
-      currentA = 0.0f;
-      powerW = 0.0f;
+          const bool abnormal = smoothedPower > POWER_THRESHOLDS_W[0];
+
+          energyWh[0] += smoothedPower * deltaHours;
+
+          latestCurrentA[0] = currentA;
+          latestPowerW[0] = smoothedPower;
+          latestAbnormal[0] = abnormal;
+          smoothedPowerW[0] = smoothedPower;
+          applianceOnState[0] = applianceOn;
+        }
+        lastNanoReading = "";
+      }
+    } else {
+      lastNanoReading += c;
     }
-
-    bool abnormal = powerW > POWER_THRESHOLDS_W[ch];
-
-    energyWh[ch] += powerW * deltaHours;
-
-    latestCurrentA[ch] = currentA;
-    latestPowerW[ch] = powerW;
-    latestAbnormal[ch] = abnormal;
   }
 
   if (nowMs - lastTransmitMillis >= TRANSMIT_INTERVAL_MS) {
@@ -178,13 +254,15 @@ void loop() {
       Serial.print(ch);
       Serial.print(" currentA=");
       Serial.print(latestCurrentA[ch], 4);
-      Serial.print(" powerW=");
+      Serial.print(" smoothedPowerW=");
       Serial.print(latestPowerW[ch], 2);
+      Serial.print(" appliance=");
+      Serial.print(applianceOnState[ch] ? "ON" : "OFF");
       Serial.print(" energyWh=");
       Serial.print(energyWh[ch], 4);
       Serial.print(" abnormal=");
       Serial.println(latestAbnormal[ch] ? "true" : "false");
-      postReading(ch, latestCurrentA[ch], latestPowerW[ch], energyWh[ch], latestAbnormal[ch]);
+      postReading(ch, latestPowerW[ch], latestCurrentA[ch], energyWh[ch], latestAbnormal[ch]);
     }
     lastTransmitMillis = nowMs;
   }

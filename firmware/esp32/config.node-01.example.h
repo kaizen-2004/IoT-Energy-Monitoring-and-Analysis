@@ -22,18 +22,18 @@ static const float VOLTAGE_REF_V = 230.0f;
 static const float FREQUENCY_HZ = 60.0f;
 
 // Sampling and transmission
-static const uint32_t SAMPLE_WINDOW_MS = 500;
+static const int SAMPLE_COUNT = 1000;
+static const int SMOOTHING_WINDOW_SIZE = 20;
 static const uint32_t TRANSMIT_INTERVAL_MS = 5000;
 
 // ADC/sensor calibration placeholders
 static const float ADC_REF_V = 3.3f;
 static const int ADC_MAX = 4095;
 static const int ADC_MIDPOINT = 2048;
-static const float BURDEN_OHMS = 22.0f;
-static const float CT_RATIO = 2000.0f;
-static const float ZERO_CURRENT_OFFSET_A = 0.56f;
-static const float MIN_POWER_NOISE_W = 15.0f;
-static const float CALIBRATION_FACTORS[NUM_CHANNELS] = {1.00f};
+static const float IDLE_ADC_RMS = 30.0f;
+static const float MIN_POWER_NOISE_W = 5.0f;
+static const float POWER_ON_THRESHOLD_W = 10.0f;
+static const float CALIBRATION_FACTORS[NUM_CHANNELS] = {0.0075f};
 
 // Threshold (W) for abnormal/alert tagging
 static const float POWER_THRESHOLDS_W[NUM_CHANNELS] = {500.0f};
