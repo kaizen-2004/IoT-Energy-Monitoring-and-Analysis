@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Save, DollarSign, Tag, Bell, MapPin, Trash2, CheckCircle2, XCircle } from 'lucide-react';
+import { Save, DollarSign, Tag, Bell, MapPin, Trash2, CheckCircle2, XCircle, ShieldCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   defaultMonth,
@@ -10,6 +10,7 @@ import {
 } from '../utils/mockData';
 import type { MonthlyRate, AppSettings } from '../utils/mockData';
 import MonthPicker from '../components/MonthPicker';
+import { changeCustomerAccountNumber } from '../utils/auth';
 
 function resolveRateForMonth(rates: MonthlyRate[], month: string, fallback = 11.5) {
   const sorted = [...rates].sort((a, b) => a.month.localeCompare(b.month));
@@ -44,6 +45,10 @@ export default function Settings() {
   
   // Insight Settings
   const [timezone, setTimezone] = useState<string>('Asia/Manila');
+
+  // Security Settings
+  const [securityCurrentCan, setSecurityCurrentCan] = useState<string>('');
+  const [securityNewCan, setSecurityNewCan] = useState<string>('');
 
   const parsedThresholds = [node1Threshold, node2Threshold, node3Threshold].map((value, index) => {
     const threshold = Number.parseFloat(value);
@@ -157,7 +162,23 @@ export default function Settings() {
       toast.error(`Could not save insight settings: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
-  
+
+  const handleChangeCan = async () => {
+    if (!securityCurrentCan || !securityNewCan) {
+      toast.error('Enter your current CAN and the new CAN');
+      return;
+    }
+
+    try {
+      await changeCustomerAccountNumber(securityCurrentCan, securityNewCan);
+      setSecurityCurrentCan('');
+      setSecurityNewCan('');
+      toast.success('Customer Account Number updated');
+    } catch (error) {
+      toast.error(`Could not update CAN: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
+
   return (
     <div className="w-full space-y-4">
       {/* Header */}
@@ -468,7 +489,49 @@ export default function Settings() {
           </button>
         </div>
       </div>
-      
+
+      {/* Security Settings */}
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
+        <div className="flex items-center gap-2 mb-4">
+          <div className="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center">
+            <ShieldCheck className="w-5 h-5 text-slate-700" />
+          </div>
+          <h2 className="text-lg font-semibold text-gray-900">Security</h2>
+        </div>
+
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <h3 className="text-sm font-semibold text-gray-900 mb-3">Change Customer Account Number</h3>
+          <div className="space-y-3">
+            <input
+              type="text"
+              inputMode="numeric"
+              value={securityCurrentCan}
+              onChange={(e) => setSecurityCurrentCan(e.target.value)}
+              className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              placeholder="Current CAN"
+            />
+            <input
+              type="text"
+              inputMode="numeric"
+              value={securityNewCan}
+              onChange={(e) => setSecurityNewCan(e.target.value)}
+              className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              placeholder="New CAN"
+            />
+            <p className="text-xs text-slate-500">
+              CAN values are stored as backend hashes. If you forget the CAN, reset it from the database/admin console.
+            </p>
+            <button
+              onClick={handleChangeCan}
+              className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-slate-900 text-white rounded-xl font-medium active:bg-slate-800 transition-colors min-h-[48px]"
+            >
+              <Save className="w-4 h-4" />
+              Save New CAN
+            </button>
+          </div>
+        </div>
+      </div>
+       
       {/* Future Cloud Sync Notice */}
       <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4">
         <p className="text-sm text-blue-800 font-medium mb-1">💡 Settings Management</p>

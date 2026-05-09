@@ -86,6 +86,7 @@ export interface AppSettings {
   timezone: string;
   updatedAt: string | null;
   rateHistory: MonthlyRate[];
+  customerAccountNumberConfigured: boolean;
 }
 
 export interface DashboardViewData {
@@ -298,11 +299,7 @@ function normalizeThresholds(input: unknown) {
   });
 }
 
-export async function fetchAppSettings(): Promise<AppSettings> {
-  const payload = await fetchJson("/api/settings");
-  const data = (payload.data || {}) as Record<string, unknown>;
-  const rateHistoryRaw = Array.isArray(data.rateHistory) ? data.rateHistory : [];
-
+function mapSettingsPayload(data: Record<string, unknown>, rateHistoryRaw: unknown[]): AppSettings {
   return {
     electricityRate: Number(data.electricityRate ?? DEFAULT_RATE),
     effectiveMonth: normalizeMonth(typeof data.effectiveMonth === "string" ? data.effectiveMonth : undefined),
@@ -310,8 +307,17 @@ export async function fetchAppSettings(): Promise<AppSettings> {
     nodeThresholds: normalizeThresholds(data.nodeThresholds),
     timezone: typeof data.timezone === "string" && data.timezone.trim() ? data.timezone : PHT_TIMEZONE,
     updatedAt: typeof data.updatedAt === "string" ? data.updatedAt : null,
-    rateHistory: rateHistoryRaw.map((row) => mapRate(row as Record<string, unknown>))
+    rateHistory: rateHistoryRaw.map((row) => mapRate(row as Record<string, unknown>)),
+    customerAccountNumberConfigured: Boolean(data.customerAccountNumberConfigured)
   };
+}
+
+export async function fetchAppSettings(): Promise<AppSettings> {
+  const payload = await fetchJson("/api/settings");
+  const data = (payload.data || {}) as Record<string, unknown>;
+  const rateHistoryRaw = Array.isArray(data.rateHistory) ? data.rateHistory : [];
+
+  return mapSettingsPayload(data, rateHistoryRaw);
 }
 
 export async function saveAppSettings(patch: Partial<AppSettings>): Promise<AppSettings> {
@@ -326,15 +332,7 @@ export async function saveAppSettings(patch: Partial<AppSettings>): Promise<AppS
   const data = (payload.data || {}) as Record<string, unknown>;
   const rateHistoryRaw = Array.isArray(data.rateHistory) ? data.rateHistory : [];
 
-  return {
-    electricityRate: Number(data.electricityRate ?? DEFAULT_RATE),
-    effectiveMonth: normalizeMonth(typeof data.effectiveMonth === "string" ? data.effectiveMonth : undefined),
-    nodeLabels: normalizeLabels(data.nodeLabels),
-    nodeThresholds: normalizeThresholds(data.nodeThresholds),
-    timezone: typeof data.timezone === "string" && data.timezone.trim() ? data.timezone : PHT_TIMEZONE,
-    updatedAt: typeof data.updatedAt === "string" ? data.updatedAt : null,
-    rateHistory: rateHistoryRaw.map((row) => mapRate(row as Record<string, unknown>))
-  };
+  return mapSettingsPayload(data, rateHistoryRaw);
 }
 
 export async function fetchMonthlyRates(): Promise<MonthlyRate[]> {

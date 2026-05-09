@@ -40,6 +40,8 @@ CREATE TABLE IF NOT EXISTS app_settings (
   node_labels JSONB NOT NULL DEFAULT '["Node 1","Node 2","Node 3"]'::jsonb,
   node_thresholds JSONB NOT NULL DEFAULT '[500,800,600]'::jsonb,
   timezone TEXT NOT NULL DEFAULT 'Asia/Manila',
+  customer_account_number_hash TEXT,
+  can_updated_at TIMESTAMPTZ,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

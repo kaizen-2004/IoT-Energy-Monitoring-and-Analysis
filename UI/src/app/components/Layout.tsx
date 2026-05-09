@@ -1,7 +1,8 @@
 import { useEffect } from 'react';
 import { Outlet, Link, useLocation } from 'react-router';
-import { Home, Settings, FileText, Zap } from 'lucide-react';
+import { Home, Settings, FileText, Zap, LogOut } from 'lucide-react';
 import { prefetchPage, prefetchPages } from '../pageLoaders';
+import { useCanAuth } from './CanAuthGate';
 
 const navItems = [
   { path: '/', label: 'Dashboard', icon: Home, pageKey: 'dashboard' as const },
@@ -11,6 +12,7 @@ const navItems = [
 
 export default function Layout() {
   const location = useLocation();
+  const { logout } = useCanAuth();
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -61,7 +63,7 @@ export default function Layout() {
       window.clearTimeout(timeout);
     };
   }, [location.pathname]);
-  
+
   return (
     <div className="app-shell min-h-dvh bg-slate-50">
       <div className="w-full px-4 pt-4 sm:px-6 lg:px-8">
@@ -76,30 +78,41 @@ export default function Layout() {
             </div>
           </div>
 
-          <nav className="flex items-center gap-1 rounded-xl bg-slate-100 p-1">
-            {navItems.map((item) => {
-              const Icon = item.icon;
-              const isActive = location.pathname === item.path;
+          <div className="flex items-center gap-2">
+            <nav className="flex items-center gap-1 rounded-xl bg-slate-100 p-1">
+              {navItems.map((item) => {
+                const Icon = item.icon;
+                const isActive = location.pathname === item.path;
 
-              return (
-                <Link
-                  key={item.path}
-                  to={item.path}
-                  onMouseEnter={() => prefetchPage(item.pageKey)}
-                  onFocus={() => prefetchPage(item.pageKey)}
-                  onTouchStart={() => prefetchPage(item.pageKey)}
-                  className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
-                    isActive
-                      ? 'bg-white text-blue-700 shadow-sm'
-                      : 'text-slate-600 hover:bg-white/80 hover:text-slate-900'
-                  }`}
-                >
-                  <Icon className="h-4 w-4" />
-                  <span>{item.label}</span>
-                </Link>
-              );
-            })}
-          </nav>
+                return (
+                  <Link
+                    key={item.path}
+                    to={item.path}
+                    onMouseEnter={() => prefetchPage(item.pageKey)}
+                    onFocus={() => prefetchPage(item.pageKey)}
+                    onTouchStart={() => prefetchPage(item.pageKey)}
+                    className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+                      isActive
+                        ? 'bg-white text-blue-700 shadow-sm'
+                        : 'text-slate-600 hover:bg-white/80 hover:text-slate-900'
+                    }`}
+                  >
+                    <Icon className="h-4 w-4" />
+                    <span>{item.label}</span>
+                  </Link>
+                );
+              })}
+            </nav>
+
+            <button
+              type="button"
+              onClick={logout}
+              className="flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900"
+            >
+              <LogOut className="h-4 w-4" />
+              <span>Sign out</span>
+            </button>
+          </div>
         </header>
 
         <main className="page-content pt-3 lg:pt-6">
@@ -131,6 +144,14 @@ export default function Layout() {
               </Link>
             );
           })}
+          <button
+            type="button"
+            onClick={logout}
+            className="flex min-h-[56px] min-w-[72px] flex-col items-center justify-center gap-1 px-2 py-2 text-gray-500 transition-colors active:text-gray-700"
+          >
+            <LogOut className="h-6 w-6" />
+            <span className="text-xs font-medium">Sign out</span>
+          </button>
         </div>
       </nav>
     </div>

@@ -10,6 +10,78 @@ function isMonthString(value) {
   return typeof value === "string" && /^\d{4}-(0[1-9]|1[0-2])$/.test(value);
 }
 
+function normalizeCan(value) {
+  return typeof value === "string" ? value.replace(/\D/g, "") : "";
+}
+
+function validateCanValue(value, field = "can") {
+  const normalized = normalizeCan(value);
+  return normalized.length >= 10 ? null : `${field} must contain at least 10 digits`;
+}
+
+function validateCanPayload(body) {
+  const errors = [];
+
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return {
+      valid: false,
+      errors: ["payload must be a JSON object"]
+    };
+  }
+
+  const canError = validateCanValue(body.can);
+  if (canError) {
+    errors.push(canError);
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors
+  };
+}
+
+function validateCanSetupPayload(body) {
+  const errors = [];
+
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return {
+      valid: false,
+      errors: ["payload must be a JSON object"]
+    };
+  }
+
+  const canError = validateCanValue(body.can);
+  if (canError) {
+    errors.push(canError);
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors
+  };
+}
+
+function validateCanChangePayload(body) {
+  const errors = [];
+
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return {
+      valid: false,
+      errors: ["payload must be a JSON object"]
+    };
+  }
+
+  const currentError = validateCanValue(body.currentCan, "currentCan");
+  if (currentError) errors.push(currentError);
+  const nextError = validateCanValue(body.newCan, "newCan");
+  if (nextError) errors.push(nextError);
+
+  return {
+    valid: errors.length === 0,
+    errors
+  };
+}
+
 function validateReadingPayload(body) {
   const errors = [];
 
@@ -222,6 +294,10 @@ function normalizeReading(body) {
 }
 
 module.exports = {
+  normalizeCan,
+  validateCanPayload,
+  validateCanSetupPayload,
+  validateCanChangePayload,
   validateReadingPayload,
   validateSettingsPayload,
   validateRateUpsertPayload,

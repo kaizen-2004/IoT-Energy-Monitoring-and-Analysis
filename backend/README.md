@@ -10,6 +10,10 @@ Node.js/Express starter backend for:
 
 - `GET /health`
 - `GET /health/db`
+- `GET /api/auth/status`
+- `POST /api/auth/setup`
+- `POST /api/auth/can`
+- `PUT /api/auth/can`
 - `GET /api/settings`
 - `PUT /api/settings`
 - `GET /api/rates?limit=240`
@@ -35,6 +39,8 @@ npm run dev
 Before running, create `.env` from `.env.example` and set:
 - `DATABASE_URL`
 - `DB_SSL` (usually `true` for Supabase)
+
+The Customer Account Number is configured inside the web app during first setup and stored as a backend hash in `app_settings`.
 
 ```bash
 cp .env.example .env

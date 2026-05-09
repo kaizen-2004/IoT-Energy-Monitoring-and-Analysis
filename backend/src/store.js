@@ -8,7 +8,8 @@ const DEFAULT_SETTINGS = {
   effectiveMonth: new Date().toISOString().slice(0, 7),
   nodeLabels: DEFAULT_NODE_LABELS,
   nodeThresholds: DEFAULT_NODE_THRESHOLDS,
-  timezone: "Asia/Manila"
+  timezone: "Asia/Manila",
+  customerAccountNumberConfigured: false
 };
 
 function isValidMonth(value) {
@@ -105,7 +106,8 @@ function mapSettingsRow(row) {
       typeof row.timezone === "string" && row.timezone.trim().length > 0
         ? row.timezone.trim()
         : DEFAULT_SETTINGS.timezone,
-    updatedAt: row.updated_at || null
+    updatedAt: row.updated_at || null,
+    customerAccountNumberConfigured: Boolean(row.customer_account_number_hash)
   };
 }
 
@@ -142,8 +144,16 @@ class ReadingStore {
             node_labels JSONB NOT NULL DEFAULT '["Node 1","Node 2","Node 3"]'::jsonb,
             node_thresholds JSONB NOT NULL DEFAULT '[500,800,600]'::jsonb,
             timezone TEXT NOT NULL DEFAULT 'Asia/Manila',
+            customer_account_number_hash TEXT,
+            can_updated_at TIMESTAMPTZ,
             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
           )
+        `);
+
+        await query(`
+          ALTER TABLE app_settings
+            ADD COLUMN IF NOT EXISTS customer_account_number_hash TEXT,
+            ADD COLUMN IF NOT EXISTS can_updated_at TIMESTAMPTZ
         `);
 
         await query(`
@@ -500,6 +510,59 @@ class ReadingStore {
     return result.rows.length > 0 ? normalizeRateRow(result.rows[0]) : null;
   }
 
+  async getSecuritySettings() {
+    await this.ensureSettingsTable();
+
+    const result = await query(`
+      SELECT
+        customer_account_number_hash
+      FROM app_settings
+      WHERE id = 1
+      LIMIT 1
+    `);
+
+    const row = result.rows[0] || {};
+    return {
+      canHash: typeof row.customer_account_number_hash === "string" ? row.customer_account_number_hash : ""
+    };
+  }
+
+  async saveInitialSecuritySetup(settings) {
+    await this.ensureSettingsTable();
+
+    await query(
+      `
+        UPDATE app_settings
+        SET
+          customer_account_number_hash = $1,
+          can_updated_at = NOW(),
+          updated_at = NOW()
+        WHERE id = 1
+      `,
+      [settings.canHash]
+    );
+
+    return this.getSecuritySettings();
+  }
+
+  async updateCanHash(canHash) {
+    await this.ensureSettingsTable();
+
+    await query(
+      `
+        UPDATE app_settings
+        SET
+          customer_account_number_hash = $1,
+          can_updated_at = NOW(),
+          updated_at = NOW()
+        WHERE id = 1
+      `,
+      [canHash]
+    );
+
+    return this.getSecuritySettings();
+  }
+
   async getSettings() {
     await this.ensureSettingsTable();
 
@@ -512,6 +575,7 @@ class ReadingStore {
             node_labels,
             node_thresholds,
             timezone,
+            customer_account_number_hash,
             updated_at
           FROM app_settings
           WHERE id = 1
