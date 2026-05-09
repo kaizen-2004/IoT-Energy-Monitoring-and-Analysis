@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { FileText, Download, Calendar, Image as ImageIcon, Table, AlertTriangle } from 'lucide-react';
+import { FileText, Download, Calendar } from 'lucide-react';
 import { toast } from 'sonner';
 import { defaultMonth, fetchReportsViewData } from '../utils/mockData';
 import type { Alert, CombinedMetrics, DailyData, NodeSummary } from '../utils/mockData';
@@ -22,9 +22,6 @@ const EMPTY_COMBINED_METRICS: CombinedMetrics = {
 export default function Reports() {
   const [selectedMonth, setSelectedMonth] = useState<string>(defaultMonth());
   const [viewMode, setViewMode] = useState<ViewMode>('7-day');
-  const [includeCharts, setIncludeCharts] = useState<boolean>(true);
-  const [includeNodeTable, setIncludeNodeTable] = useState<boolean>(true);
-  const [includeAlerts, setIncludeAlerts] = useState<boolean>(true);
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [rate, setRate] = useState<number>(11.5);
@@ -68,18 +65,17 @@ export default function Reports() {
   });
   
   const handleGeneratePDF = async () => {
-    const hasRenderableData = chartData.length > 0 || nodeSummaries.length > 0;
-
-    if (isLoading && !hasRenderableData) {
-      toast.info('Still loading latest data. Please try again in a moment.');
-      return;
-    }
-
     setIsGenerating(true);
-    toast.info('Generating PDF...');
-    
+    toast.info('Generating one-page PDF...');
+
     try {
-      const jsPdfModule = await import('jspdf');
+      const [jsPdfModule, pdfReportData] = await Promise.all([
+        import('jspdf'),
+        fetchReportsViewData({
+          selectedMonth,
+          viewMode: 'whole-month'
+        })
+      ]);
       const JsPdfCtor =
         jsPdfModule.jsPDF ||
         (jsPdfModule.default as { jsPDF?: typeof jsPdfModule.jsPDF } | undefined)?.jsPDF ||
@@ -92,308 +88,299 @@ export default function Reports() {
       const pdf = new JsPdfCtor('p', 'mm', 'a4');
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
-      const pageMargin = 16;
+      const pageMargin = 12;
       const contentWidth = pageWidth - pageMargin * 2;
-      const brandBlue: [number, number, number] = [37, 99, 235];
-      const brandSky: [number, number, number] = [14, 165, 233];
-      const ink: [number, number, number] = [15, 23, 42];
-      const muted: [number, number, number] = [100, 116, 139];
-      const border: [number, number, number] = [226, 232, 240];
-      const paper: [number, number, number] = [248, 250, 252];
-      let yPos = 18;
-      let chartSnapshotUnavailable = false;
+      const gutter = 6;
+      const leftColumnWidth = (contentWidth - gutter) / 2;
+      const rightColumnX = pageMargin + leftColumnWidth + gutter;
+      const rightColumnWidth = leftColumnWidth;
+      const brandBlue = [37, 99, 235];
+      const ink = [15, 23, 42];
+      const muted = [100, 116, 139];
+      const border = [203, 213, 225];
+      const softBorder = [226, 232, 240];
+      const paper = [248, 250, 252];
+      const metrics = pdfReportData.combinedMetrics;
+      const exportChartData = pdfReportData.chartData;
+      const exportNodeSummaries = pdfReportData.nodeSummaries;
+      const exportAlerts = pdfReportData.alerts;
+      const exportRate = pdfReportData.rate;
+      const generatedDate = new Date().toLocaleString('en-PH', { timeZone: 'Asia/Manila' });
+      const [yearText, monthText] = selectedMonth.split('-');
+      const year = Number(yearText);
+      const month = Number(monthText);
+      const monthStart = new Date(Date.UTC(year, month - 1, 1));
+      const monthEnd = new Date(Date.UTC(year, month, 0));
+      const reportNumber = `${selectedMonth.replace('-', '')}-${String(exportNodeSummaries.length).padStart(2, '0')}`;
 
-      const ensurePageSpace = (requiredHeight: number) => {
-        if (yPos + requiredHeight <= pageHeight - 16) {
+      const formatDate = (date: Date) => date.toLocaleDateString('en-PH', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        timeZone: 'UTC'
+      });
+      const billingPeriod = `${formatDate(monthStart)} to ${formatDate(monthEnd)}`;
+      const formatNumber = (value: number, digits = 2) => value.toLocaleString('en-PH', {
+        minimumFractionDigits: digits,
+        maximumFractionDigits: digits
+      });
+      const formatPhp = (value: number) => `PHP ${formatNumber(value, 2)}`;
+      const formatKWh = (value: number) => `${formatNumber(value, 2)} kWh`;
+      const exportThresholdStatusText = metrics.overThreshold
+        ? `Combined load is ${Math.round(Math.abs(metrics.remainingThresholdW))}W above the total threshold.`
+        : `Combined load is within the total threshold with ${Math.round(metrics.remainingThresholdW)}W remaining.`;
+
+      const setTextColor = (color: number[]) => pdf.setTextColor(color[0], color[1], color[2]);
+      const setFillColor = (color: number[]) => pdf.setFillColor(color[0], color[1], color[2]);
+      const setDrawColor = (color: number[]) => pdf.setDrawColor(color[0], color[1], color[2]);
+      const drawPanel = (x: number, y: number, width: number, height: number, fill: number[], stroke = softBorder, radius = 3) => {
+        setFillColor(fill);
+        setDrawColor(stroke);
+        pdf.setLineWidth(0.25);
+        pdf.roundedRect(x, y, width, height, radius, radius, 'FD');
+      };
+      const truncateText = (text: string, maxWidth: number) => {
+        if (pdf.getTextWidth(text) <= maxWidth) {
+          return text;
+        }
+
+        let value = text;
+        while (value.length > 4 && pdf.getTextWidth(`${value}...`) > maxWidth) {
+          value = value.slice(0, -1);
+        }
+        return `${value}...`;
+      };
+      const drawFittedText = (text: string, x: number, y: number, maxWidth: number, fontSize: number, minFontSize = 9) => {
+        let size = fontSize;
+        pdf.setFontSize(size);
+        while (size > minFontSize && pdf.getTextWidth(text) > maxWidth) {
+          size -= 0.5;
+          pdf.setFontSize(size);
+        }
+        pdf.text(text, x, y);
+      };
+      const drawInfoLine = (label: string, value: string, x: number, y: number, width: number) => {
+        pdf.setFont('helvetica', 'normal');
+        pdf.setFontSize(7.4);
+        setTextColor(muted);
+        pdf.text(label, x, y);
+        pdf.setFont('helvetica', 'bold');
+        pdf.setFontSize(7.8);
+        setTextColor(ink);
+        pdf.text(truncateText(value, width * 0.68), x + width, y, { align: 'right' });
+      };
+      const drawEnergyTrend = (x: number, y: number, width: number, height: number) => {
+        drawPanel(x, y, width, height, [255, 255, 255], border, 4);
+        pdf.setFont('helvetica', 'bold');
+        pdf.setFontSize(11);
+        setTextColor(ink);
+        pdf.text('Your monthly consumption', x + 4, y + 8);
+        pdf.setFont('helvetica', 'normal');
+        pdf.setFontSize(7.6);
+        setTextColor(muted);
+        pdf.text(`${selectedMonthLabel} total usage by day`, x + 4, y + 13);
+        pdf.setFont('helvetica', 'bold');
+        pdf.setFontSize(9);
+        setTextColor(brandBlue);
+        pdf.text(formatKWh(metrics.monthKWh), x + width - 4, y + 8, { align: 'right' });
+
+        const values = exportChartData.map((item) => Math.max(0, item.total));
+        if (values.length === 0) {
+          pdf.setFont('helvetica', 'normal');
+          pdf.setFontSize(8.5);
+          setTextColor(muted);
+          pdf.text('No daily consumption data available for this billing month.', x + 4, y + 36);
           return;
         }
 
-        pdf.addPage();
-        yPos = 20;
-      };
+        const chartLeft = x + 12;
+        const chartRight = x + width - 6;
+        const chartTop = y + 21;
+        const chartBottom = y + height - 14;
+        const chartWidth = chartRight - chartLeft;
+        const chartHeight = chartBottom - chartTop;
+        const rawMax = Math.max(...values);
+        const maxValue = rawMax > 0 ? rawMax * 1.12 : 1;
 
-      const drawPageFooter = () => {
-        const pageCount = pdf.getNumberOfPages();
-        const pageNumber = pdf.getCurrentPageInfo().pageNumber;
-        pdf.setDrawColor(border[0], border[1], border[2]);
-        pdf.line(pageMargin, pageHeight - 10, pageWidth - pageMargin, pageHeight - 10);
+        pdf.setLineWidth(0.15);
+        setDrawColor([226, 232, 240]);
         pdf.setFont('helvetica', 'normal');
-        pdf.setFontSize(8);
-        pdf.setTextColor(muted[0], muted[1], muted[2]);
-        pdf.text('IoT Energy Monitor', pageMargin, pageHeight - 6);
-        pdf.text(`Page ${pageNumber} of ${pageCount}`, pageWidth - pageMargin, pageHeight - 6, { align: 'right' });
-      };
+        pdf.setFontSize(6.2);
+        setTextColor(muted);
+        [0, 0.5, 1].forEach((ratio) => {
+          const gridY = chartBottom - chartHeight * ratio;
+          pdf.line(chartLeft, gridY, chartRight, gridY);
+          pdf.text(formatNumber(maxValue * ratio, 1), x + 3, gridY + 1.7);
+        });
 
-      const decoratePage = () => {
-        pdf.setFillColor(243, 248, 255);
-        pdf.circle(pageWidth - 18, 16, 14, 'F');
-        pdf.setFillColor(232, 244, 255);
-        pdf.circle(pageWidth - 32, 10, 8, 'F');
-      };
+        const slotWidth = chartWidth / values.length;
+        const barWidth = Math.max(1.3, slotWidth * 0.58);
+        setFillColor(brandBlue);
+        values.forEach((value, index) => {
+          const barHeight = maxValue > 0 ? (value / maxValue) * chartHeight : 0;
+          const barX = chartLeft + index * slotWidth + (slotWidth - barWidth) / 2;
+          const barY = chartBottom - barHeight;
+          if (barHeight > 0) {
+            pdf.rect(barX, barY, barWidth, barHeight, 'F');
+          }
+        });
 
-      const addStyledPage = () => {
-        pdf.addPage();
-        yPos = 20;
-        decoratePage();
+        const labelIndexes = new Set([0, 7, 14, 21, 28, values.length - 1].filter((index) => index >= 0 && index < values.length));
+        pdf.setFont('helvetica', 'normal');
+        pdf.setFontSize(6.4);
+        setTextColor(muted);
+        labelIndexes.forEach((index) => {
+          const labelX = chartLeft + index * slotWidth + slotWidth / 2;
+          pdf.text(String(index + 1), labelX, y + height - 5, { align: 'center' });
+        });
       };
-
-      const drawMetaPill = (x: number, y: number, text: string, fill: [number, number, number], textColor: [number, number, number]) => {
-        const width = Math.max(26, pdf.getTextWidth(text) + 10);
-        pdf.setFillColor(fill[0], fill[1], fill[2]);
-        pdf.roundedRect(x, y, width, 7, 3.5, 3.5, 'F');
+      const drawDeviceTable = (x: number, y: number, width: number, height: number) => {
+        drawPanel(x, y, width, height, [255, 255, 255], border, 4);
         pdf.setFont('helvetica', 'bold');
-        pdf.setFontSize(8);
-        pdf.setTextColor(textColor[0], textColor[1], textColor[2]);
-        pdf.text(text, x + 5, y + 4.6);
-        return width;
-      };
+        pdf.setFontSize(10.5);
+        setTextColor(ink);
+        pdf.text('Device consumption summary', x + 4, y + 8);
+        pdf.setFont('helvetica', 'normal');
+        pdf.setFontSize(7.3);
+        setTextColor(muted);
+        pdf.text(truncateText('Monthly totals, present load, and estimated cost', width - 8), x + 4, y + 13);
 
-      const drawSectionTitle = (title: string, subtitle?: string) => {
-        ensurePageSpace(subtitle ? 18 : 12);
+        const headerY = y + 20;
+        const applianceX = x + 8;
+        const kWhX = x + width * 0.55;
+        const currentX = x + width * 0.73;
+        const costX = x + width - 4;
+        const applianceWidth = kWhX - applianceX - 3;
         pdf.setFont('helvetica', 'bold');
-        pdf.setFontSize(7.5);
-        pdf.setTextColor(brandBlue[0], brandBlue[1], brandBlue[2]);
-        pdf.text('REPORT SECTION', pageMargin, yPos);
-        yPos += 4;
-        pdf.setFont('helvetica', 'bold');
-        pdf.setFontSize(14);
-        pdf.setTextColor(ink[0], ink[1], ink[2]);
-        pdf.text(title, pageMargin, yPos);
+        pdf.setFontSize(6.6);
+        setTextColor(muted);
+        pdf.text('Appliance', x + 4, headerY);
+        pdf.text('kWh', kWhX, headerY, { align: 'right' });
+        pdf.text('W', currentX, headerY, { align: 'right' });
+        pdf.text('Cost PHP', costX, headerY, { align: 'right' });
+        setDrawColor(softBorder);
+        pdf.line(x + 4, headerY + 2.5, x + width - 4, headerY + 2.5);
 
-        if (subtitle) {
+        if (exportNodeSummaries.length === 0) {
           pdf.setFont('helvetica', 'normal');
-          pdf.setFontSize(9);
-          pdf.setTextColor(muted[0], muted[1], muted[2]);
-          pdf.text(subtitle, pageMargin, yPos + 5);
-          yPos += 12;
-        } else {
-          yPos += 7;
+          pdf.setFontSize(8);
+          setTextColor(muted);
+          pdf.text('No device data available.', x + 4, headerY + 10);
+          return;
         }
 
-        pdf.setDrawColor(border[0], border[1], border[2]);
-        pdf.line(pageMargin, yPos, pageWidth - pageMargin, yPos);
-        yPos += 6;
+        exportNodeSummaries.slice(0, 3).forEach((node, index) => {
+          const rowY = headerY + 10 + index * 8.4;
+          const accent = index === 0 ? [147, 51, 234] : index === 1 ? [249, 115, 22] : [8, 145, 178];
+          setFillColor(accent);
+          pdf.roundedRect(x + 4, rowY - 3.5, 2, 5.5, 1, 1, 'F');
+          pdf.setFont('helvetica', 'bold');
+          pdf.setFontSize(7.2);
+          setTextColor(ink);
+          pdf.text(truncateText(node.label, applianceWidth), applianceX, rowY);
+          pdf.setFont('helvetica', 'normal');
+          pdf.setFontSize(7.1);
+          setTextColor(ink);
+          pdf.text(formatNumber(node.monthKWh, 2), kWhX, rowY, { align: 'right' });
+          pdf.text(String(Math.round(node.currentPower)), currentX, rowY, { align: 'right' });
+          pdf.text(formatNumber(node.monthEstimatedCost, 2), costX, rowY, { align: 'right' });
+        });
       };
-
-      const drawMetricCard = (x: number, y: number, label: string, value: string, accent: [number, number, number]) => {
-        const cardWidth = (contentWidth - 6) / 2;
-        const cardHeight = 30;
-        const labelLines = pdf.splitTextToSize(label, cardWidth - 12);
-
-        pdf.setFillColor(255, 255, 255);
-        pdf.setDrawColor(border[0], border[1], border[2]);
-        pdf.roundedRect(x, y, cardWidth, cardHeight, 4, 4, 'FD');
-        pdf.setFillColor(accent[0], accent[1], accent[2]);
-        pdf.roundedRect(x, y, 5, cardHeight, 4, 4, 'F');
-        pdf.setFont('helvetica', 'normal');
-        pdf.setFontSize(8);
-        pdf.setTextColor(muted[0], muted[1], muted[2]);
-        pdf.text(labelLines, x + 10, y + 7.5);
+      const drawThresholdNotice = (x: number, y: number, width: number, height: number) => {
+        const fill = metrics.overThreshold ? [254, 242, 242] : [220, 252, 231];
+        const stroke = metrics.overThreshold ? [252, 165, 165] : [134, 239, 172];
+        const textColor = metrics.overThreshold ? [153, 27, 27] : [22, 101, 52];
+        drawPanel(x, y, width, height, fill, stroke, 4);
         pdf.setFont('helvetica', 'bold');
-        pdf.setFontSize(14);
-        pdf.setTextColor(ink[0], ink[1], ink[2]);
-        pdf.text(value, x + 10, y + 23);
+        pdf.setFontSize(8.4);
+        setTextColor(textColor);
+        pdf.text(metrics.overThreshold ? 'Threshold Alert' : 'Threshold Status: Within limit', x + 4, y + 7);
+        pdf.setFont('helvetica', 'normal');
+        pdf.setFontSize(7.5);
+        const detail = metrics.overThreshold && exportAlerts.length > 0
+          ? `${exportAlerts.length} active alert(s): ${exportAlerts[0].message}`
+          : exportThresholdStatusText;
+        const detailLines = pdf.splitTextToSize(detail, width - 8).slice(0, 2);
+        pdf.text(detailLines, x + 4, y + 12.5);
       };
 
-      decoratePage();
-      pdf.setFillColor(ink[0], ink[1], ink[2]);
-      pdf.roundedRect(pageMargin, yPos, contentWidth, 36, 6, 6, 'F');
-      pdf.setFillColor(brandBlue[0], brandBlue[1], brandBlue[2]);
-      pdf.roundedRect(pageWidth - pageMargin - 46, yPos + 5, 38, 26, 5, 5, 'F');
+      setFillColor([255, 255, 255]);
+      pdf.rect(0, 0, pageWidth, pageHeight, 'F');
+      setFillColor([239, 246, 255]);
+      pdf.rect(0, 0, pageWidth, 5, 'F');
+
+      drawPanel(pageMargin, 12, leftColumnWidth, 40, [255, 255, 255], border, 4);
       pdf.setFont('helvetica', 'bold');
       pdf.setFontSize(7.5);
-      pdf.setTextColor(255, 255, 255);
-      pdf.text('MONTHLY ENERGY DOSSIER', pageMargin + 6, yPos + 8);
-
-      pdf.setFont('helvetica', 'bold');
-      pdf.setFontSize(21);
-      pdf.text('Energy Consumption Report', pageMargin + 6, yPos + 16.5);
-
+      setTextColor(brandBlue);
+      pdf.text('MONTHLY ENERGY BILL', pageMargin + 5, 20);
+      pdf.setFontSize(18);
+      setTextColor(ink);
+      pdf.text('Energy Consumption Report', pageMargin + 5, 29);
       pdf.setFont('helvetica', 'normal');
-      pdf.setFontSize(10);
-      const generatedDate = new Date().toLocaleString('en-PH', { timeZone: 'Asia/Manila' });
-      pdf.text(`Generated: ${generatedDate}`, pageMargin + 6, yPos + 23);
-      const periodPillWidth = drawMetaPill(pageMargin + 6, yPos + 26, selectedMonthLabel, [219, 234, 254], [30, 64, 175]);
-      drawMetaPill(pageMargin + 10 + periodPillWidth, yPos + 26, viewMode === '7-day' ? '7-Day Trend' : 'Whole Month', [224, 242, 254], [12, 74, 110]);
+      pdf.setFontSize(8.3);
+      setTextColor(muted);
+      pdf.text(`Billing Month: ${selectedMonthLabel}`, pageMargin + 5, 37);
+      pdf.text(`Generated: ${generatedDate}`, pageMargin + 5, 44);
+
+      drawPanel(rightColumnX, 12, rightColumnWidth, 40, [224, 242, 254], [125, 211, 252], 4);
       pdf.setFont('helvetica', 'bold');
-      pdf.setFontSize(11);
-      pdf.text('Export', pageWidth - pageMargin - 27, yPos + 15, { align: 'center' });
+      pdf.setFontSize(8.2);
+      setTextColor([12, 74, 110]);
+      pdf.text('Estimated Amount This Month', rightColumnX + 5, 20);
+      pdf.setFont('helvetica', 'bold');
+      setTextColor(ink);
+      drawFittedText(formatPhp(metrics.monthCost), rightColumnX + 5, 34, rightColumnWidth - 10, 22, 13);
       pdf.setFont('helvetica', 'normal');
-      pdf.setFontSize(8.5);
-      pdf.text('PDF', pageWidth - pageMargin - 27, yPos + 21, { align: 'center' });
-      pdf.text('ready', pageWidth - pageMargin - 27, yPos + 26, { align: 'center' });
+      pdf.setFontSize(8);
+      setTextColor([12, 74, 110]);
+      pdf.text(`${formatKWh(metrics.monthKWh)} consumed`, rightColumnX + 5, 44);
 
-      yPos += 44;
-      drawSectionTitle('Summary Snapshot', 'Combined totals for the three monitored appliances');
-
-      const cardGap = 6;
-      const firstColumnX = pageMargin;
-      const secondColumnX = pageMargin + ((contentWidth - cardGap) / 2) + cardGap;
-      drawMetricCard(firstColumnX, yPos, 'Today Total', `${combinedMetrics.todayKWh.toFixed(2)} kWh`, [59, 130, 246]);
-      drawMetricCard(secondColumnX, yPos, 'Month Total', `${totalKWh.toFixed(2)} kWh`, [37, 99, 235]);
-      yPos += 34;
-      drawMetricCard(firstColumnX, yPos, 'Total Estimated Cost This Month', `PHP ${totalCost.toFixed(2)}`, [14, 165, 233]);
-      drawMetricCard(secondColumnX, yPos, 'Rate', `PHP ${rate.toFixed(2)}/kWh`, [99, 102, 241]);
-      yPos += 34;
-      drawMetricCard(firstColumnX, yPos, 'Total Threshold', `${Math.round(combinedMetrics.totalThresholdW)} W`, [245, 158, 11]);
-      drawMetricCard(secondColumnX, yPos, 'Current Load', `${Math.round(combinedMetrics.currentPowerW)} W`, [249, 115, 22]);
-      yPos += 36;
-
-      ensurePageSpace(14);
-      pdf.setFillColor(combinedMetrics.overThreshold ? 254 : 220, combinedMetrics.overThreshold ? 226 : 252, combinedMetrics.overThreshold ? 226 : 231);
-      pdf.setDrawColor(combinedMetrics.overThreshold ? 248 : 134, combinedMetrics.overThreshold ? 113 : 239, combinedMetrics.overThreshold ? 113 : 172);
-      pdf.roundedRect(pageMargin, yPos, contentWidth, 14, 4, 4, 'FD');
+      drawPanel(pageMargin, 58, leftColumnWidth, 50, [255, 255, 255], border, 4);
       pdf.setFont('helvetica', 'bold');
-      pdf.setFontSize(10);
-      pdf.setTextColor(combinedMetrics.overThreshold ? 153 : 22, combinedMetrics.overThreshold ? 27 : 101, combinedMetrics.overThreshold ? 27 : 52);
-      pdf.text(
-        combinedMetrics.overThreshold
-          ? `Threshold Status: Over by ${Math.round(Math.abs(combinedMetrics.remainingThresholdW))}W`
-          : `Threshold Status: Within limit with ${Math.round(combinedMetrics.remainingThresholdW)}W remaining`,
-        pageMargin + 4,
-        yPos + 8.4
-      );
-      yPos += 20;
+      pdf.setFontSize(10.5);
+      setTextColor(ink);
+      pdf.text('Report Details', pageMargin + 4, 66);
+      drawInfoLine('Report No.', reportNumber, pageMargin + 4, 76, leftColumnWidth - 8);
+      drawInfoLine('Billing period', billingPeriod, pageMargin + 4, 84, leftColumnWidth - 8);
+      drawInfoLine('Meter source', 'IoT energy monitor', pageMargin + 4, 92, leftColumnWidth - 8);
+      drawInfoLine('Monitored devices', String(exportNodeSummaries.length), pageMargin + 4, 100, leftColumnWidth - 8);
 
-      if (includeNodeTable) {
-        drawSectionTitle('Devices', 'Monthly totals, current load, and cost estimates per appliance');
+      drawPanel(rightColumnX, 58, rightColumnWidth, 50, paper, border, 4);
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(10.5);
+      setTextColor(ink);
+      pdf.text('Bill Computation Summary', rightColumnX + 4, 66);
+      drawInfoLine('Today consumption', formatKWh(metrics.todayKWh), rightColumnX + 4, 76, rightColumnWidth - 8);
+      drawInfoLine('Monthly consumption', formatKWh(metrics.monthKWh), rightColumnX + 4, 84, rightColumnWidth - 8);
+      drawInfoLine('Rate per kWh', formatPhp(exportRate), rightColumnX + 4, 92, rightColumnWidth - 8);
+      drawInfoLine('Energy charge', formatPhp(metrics.monthCost), rightColumnX + 4, 100, rightColumnWidth - 8);
 
-        nodeSummaries.forEach((node, index) => {
-          ensurePageSpace(30);
-          const accent =
-            index === 0 ? [147, 51, 234] : index === 1 ? [249, 115, 22] : [8, 145, 178];
+      drawEnergyTrend(pageMargin, 114, contentWidth, 78);
 
-          pdf.setFillColor(255, 255, 255);
-          pdf.setDrawColor(border[0], border[1], border[2]);
-          pdf.roundedRect(pageMargin, yPos, contentWidth, 24, 4, 4, 'FD');
-          pdf.setFillColor(accent[0], accent[1], accent[2]);
-          pdf.roundedRect(pageMargin, yPos, 6, 24, 4, 4, 'F');
-          pdf.setFont('helvetica', 'bold');
-          pdf.setFontSize(10.5);
-          pdf.setTextColor(ink[0], ink[1], ink[2]);
-          pdf.text(node.label, pageMargin + 10, yPos + 7);
-          pdf.setFontSize(10);
-          pdf.text(`${node.monthKWh.toFixed(2)} kWh`, pageWidth - pageMargin - 4, yPos + 7, { align: 'right' });
-          pdf.setFont('helvetica', 'normal');
-          pdf.setFontSize(8.5);
-          pdf.setTextColor(71, 85, 105);
-          pdf.text(`Device ID: ${node.deviceId}`, pageMargin + 10, yPos + 12.5);
-          pdf.text(`Current Load: ${Math.round(node.currentPower)}W`, pageMargin + 10, yPos + 18);
-          pdf.text(`Today: ${node.todayKWh.toFixed(2)} kWh`, pageMargin + 58, yPos + 18);
-          pdf.text(`Estimated Cost This Month: PHP ${node.monthEstimatedCost.toFixed(2)}`, pageMargin + 10, yPos + 23);
-          yPos += 28;
-        });
-      }
+      drawPanel(pageMargin, 198, leftColumnWidth, 49, paper, border, 4);
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(10.5);
+      setTextColor(ink);
+      pdf.text('Load Status', pageMargin + 4, 206);
+      drawInfoLine('Current load', `${Math.round(metrics.currentPowerW)} W`, pageMargin + 4, 216, leftColumnWidth - 8);
+      drawInfoLine('Total threshold', `${Math.round(metrics.totalThresholdW)} W`, pageMargin + 4, 224, leftColumnWidth - 8);
+      drawInfoLine(metrics.overThreshold ? 'Exceeded by' : 'Remaining', `${Math.round(Math.abs(metrics.remainingThresholdW))} W`, pageMargin + 4, 232, leftColumnWidth - 8);
+      drawInfoLine('Alert count', String(exportAlerts.length), pageMargin + 4, 240, leftColumnWidth - 8);
 
-      if (includeCharts) {
-        addStyledPage();
+      drawDeviceTable(rightColumnX, 198, rightColumnWidth, 49);
+      drawThresholdNotice(pageMargin, 254, contentWidth, 20);
 
-        drawSectionTitle(
-          viewMode === '7-day' ? '7-Day Trend' : 'Whole Month Trend',
-          'Consumption trend for the three monitored appliances and their combined total'
-        );
+      setDrawColor(softBorder);
+      pdf.line(pageMargin, pageHeight - 14, pageWidth - pageMargin, pageHeight - 14);
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(7.2);
+      setTextColor(muted);
+      pdf.text('IoT Energy Monitor', pageMargin, pageHeight - 8);
+      pdf.text('One-page monthly energy report | Page 1 of 1', pageWidth - pageMargin, pageHeight - 8, { align: 'right' });
 
-        const chartElement = document.getElementById('report-chart');
-        if (chartElement) {
-          try {
-            const html2canvasModule = await import('html2canvas');
-            const html2canvas =
-              html2canvasModule.default ||
-              (html2canvasModule as unknown as (target: HTMLElement, options?: object) => Promise<HTMLCanvasElement>);
-
-            const canvas = await html2canvas(chartElement, {
-              backgroundColor: '#ffffff',
-              scale: 2,
-              useCORS: true,
-              logging: false,
-            });
-            const imgData = canvas.toDataURL('image/png');
-            const imgWidth = contentWidth - 8;
-            const imgHeight = (canvas.height * imgWidth) / canvas.width;
-            const renderedHeight = Math.min(imgHeight, 120);
-            pdf.setFillColor(255, 255, 255);
-            pdf.setDrawColor(border[0], border[1], border[2]);
-            pdf.roundedRect(pageMargin, yPos, contentWidth, renderedHeight + 18, 5, 5, 'FD');
-            pdf.setFont('helvetica', 'bold');
-            pdf.setFontSize(9);
-            pdf.setTextColor(ink[0], ink[1], ink[2]);
-            pdf.text('Chart Snapshot', pageMargin + 4, yPos + 6);
-            pdf.setFont('helvetica', 'normal');
-            pdf.setFontSize(8);
-            pdf.setTextColor(muted[0], muted[1], muted[2]);
-            pdf.text('Exported from the on-screen report preview.', pageMargin + 4, yPos + 10.5);
-            pdf.addImage(imgData, 'PNG', pageMargin + 4, yPos + 14, imgWidth, renderedHeight);
-            yPos += renderedHeight + 24;
-          } catch (chartError) {
-            chartSnapshotUnavailable = true;
-            console.error('Chart snapshot failed:', chartError);
-            pdf.setFillColor(255, 247, 237);
-            pdf.setDrawColor(253, 186, 116);
-            pdf.roundedRect(pageMargin, yPos, contentWidth, 14, 3, 3, 'FD');
-            pdf.setFont('helvetica', 'normal');
-            pdf.setFontSize(10);
-            pdf.setTextColor(154, 52, 18);
-            pdf.text('Chart snapshot could not be captured in this browser. Summary data is included.', pageMargin + 4, yPos + 8.5);
-          }
-        } else {
-          chartSnapshotUnavailable = true;
-          pdf.setFillColor(255, 247, 237);
-          pdf.setDrawColor(253, 186, 116);
-          pdf.roundedRect(pageMargin, yPos, contentWidth, 14, 3, 3, 'FD');
-          pdf.setFont('helvetica', 'normal');
-          pdf.setFontSize(10);
-          pdf.setTextColor(154, 52, 18);
-          pdf.text('Chart is unavailable for snapshot. Summary data is included.', pageMargin + 4, yPos + 8.5);
-        }
-      }
-
-      if (includeAlerts) {
-        addStyledPage();
-
-        drawSectionTitle('Threshold Status', 'Combined alerting only triggers when the three-device total exceeds the total threshold');
-
-        if (alerts.length === 0) {
-          pdf.setFillColor(220, 252, 231);
-          pdf.setDrawColor(134, 239, 172);
-          pdf.roundedRect(pageMargin, yPos, contentWidth, 18, 4, 4, 'FD');
-          pdf.setFont('helvetica', 'bold');
-          pdf.setFontSize(10);
-          pdf.setTextColor(22, 101, 52);
-          pdf.text('No active combined-threshold alert', pageMargin + 4, yPos + 7.5);
-          pdf.setFont('helvetica', 'normal');
-          pdf.setFontSize(9);
-          pdf.text(thresholdStatusText, pageMargin + 4, yPos + 13);
-        } else {
-          alerts.forEach((alert) => {
-            ensurePageSpace(24);
-            pdf.setFillColor(254, 242, 242);
-            pdf.setDrawColor(252, 165, 165);
-            pdf.roundedRect(pageMargin, yPos, contentWidth, 20, 4, 4, 'FD');
-            pdf.setFont('helvetica', 'bold');
-            pdf.setFontSize(10);
-            pdf.setTextColor(153, 27, 27);
-            pdf.text(alert.message, pageMargin + 4, yPos + 7.5);
-            pdf.setFont('helvetica', 'normal');
-            pdf.setFontSize(9);
-            pdf.text(`${alert.nodeLabel}: ${alert.value}W / ${alert.threshold}W`, pageMargin + 4, yPos + 13.5);
-            pdf.text(alert.timestamp, pageWidth - pageMargin - 4, yPos + 13.5, { align: 'right' });
-            yPos += 24;
-          });
-        }
-      }
-
-      const totalPages = pdf.getNumberOfPages();
-      for (let pageNumber = 1; pageNumber <= totalPages; pageNumber += 1) {
-        pdf.setPage(pageNumber);
-        drawPageFooter();
-      }
-      
-      pdf.save(`energy-report-${selectedMonth}-${viewMode}.pdf`);
-      if (chartSnapshotUnavailable) {
-        toast.success('PDF generated. Chart snapshot was skipped.');
-      } else {
-        toast.success('PDF generated!');
-      }
+      pdf.save(`energy-report-${selectedMonth}-whole-month.pdf`);
+      toast.success('One-page PDF generated!');
     } catch (error) {
       console.error('Error:', error);
       toast.error(`Failed to generate PDF: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -438,10 +425,10 @@ export default function Reports() {
             />
           </div>
           
-          {/* View Mode */}
+          {/* Preview View Mode */}
           <div>
             <label htmlFor="view-mode" className="block text-sm font-medium text-gray-700 mb-2">
-              View Mode
+              Preview View Mode
             </label>
             <select
               id="view-mode"
@@ -454,46 +441,12 @@ export default function Reports() {
             </select>
           </div>
           
-          {/* Options */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-3">
-              Include in Report
-            </label>
-            
-            <div className="space-y-2">
-              <label className="flex items-center gap-3 p-3 bg-gray-50 border border-gray-200 rounded-xl cursor-pointer active:bg-gray-100 min-h-[48px]">
-                <input
-                  type="checkbox"
-                  checked={includeCharts}
-                  onChange={(e) => setIncludeCharts(e.target.checked)}
-                  className="w-5 h-5 text-blue-600 rounded"
-                />
-                <ImageIcon className="w-5 h-5 text-gray-600" />
-                <span className="text-sm font-medium text-gray-900">Charts</span>
-              </label>
-              
-              <label className="flex items-center gap-3 p-3 bg-gray-50 border border-gray-200 rounded-xl cursor-pointer active:bg-gray-100 min-h-[48px]">
-                <input
-                  type="checkbox"
-                  checked={includeNodeTable}
-                  onChange={(e) => setIncludeNodeTable(e.target.checked)}
-                  className="w-5 h-5 text-blue-600 rounded"
-                />
-                <Table className="w-5 h-5 text-gray-600" />
-                <span className="text-sm font-medium text-gray-900">Device Details</span>
-              </label>
-              
-              <label className="flex items-center gap-3 p-3 bg-gray-50 border border-gray-200 rounded-xl cursor-pointer active:bg-gray-100 min-h-[48px]">
-                <input
-                  type="checkbox"
-                  checked={includeAlerts}
-                  onChange={(e) => setIncludeAlerts(e.target.checked)}
-                  className="w-5 h-5 text-blue-600 rounded"
-                />
-                <AlertTriangle className="w-5 h-5 text-gray-600" />
-                <span className="text-sm font-medium text-gray-900">Threshold Alerts</span>
-              </label>
-            </div>
+          <div className="rounded-xl border border-blue-100 bg-blue-50 p-3">
+            <p className="text-sm font-medium text-blue-900">One-page bill export</p>
+            <p className="mt-1 text-xs leading-relaxed text-blue-700">
+              The PDF always includes the whole-month trend graph, summary, devices, and threshold status.
+              The view mode above only changes this on-screen preview.
+            </p>
           </div>
           
           <button
@@ -597,137 +550,122 @@ export default function Reports() {
           </div>
           
           {/* Chart */}
-          {includeCharts && (
-            <div>
-              <h3 className="text-sm font-semibold text-gray-900 mb-3">
-                {viewMode === '7-day' ? '7-Day Trend' : 'Whole Month Trend'}
-              </h3>
-              <div id="report-chart" className="bg-white p-3 rounded-xl border border-gray-200">
-                <div className="h-52">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={chartData}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                      <XAxis 
-                        dataKey="date" 
-                        tick={{ fontSize: 10 }} 
-                        tickMargin={5}
-                        interval={viewMode === 'whole-month' ? 'preserveStartEnd' : 0}
-                      />
-                      <YAxis tick={{ fontSize: 10 }} width={35} />
-                      <Tooltip 
-                        contentStyle={{ 
-                          backgroundColor: '#fff', 
-                          border: '1px solid #e5e7eb',
-                          borderRadius: '8px',
-                          fontSize: '11px'
-                        }}
-                      />
-                      <Line 
-                        id="report-node1-line"
-                        type="monotone" 
-                        dataKey="node1" 
-                        stroke="#9333ea" 
-                        strokeWidth={2} 
-                        dot={false}
-                        name={nodeSummaries[0]?.label || "Node 1"}
-                      />
-                      <Line 
-                        id="report-node2-line"
-                        type="monotone" 
-                        dataKey="node2" 
-                        stroke="#f97316" 
-                        strokeWidth={2} 
-                        dot={false}
-                        name={nodeSummaries[1]?.label || "Node 2"}
-                      />
-                      <Line 
-                        id="report-node3-line"
-                        type="monotone" 
-                        dataKey="node3" 
-                        stroke="#06b6d4" 
-                        strokeWidth={2} 
-                        dot={false}
-                        name={nodeSummaries[2]?.label || "Node 3"}
-                      />
-                      <Line 
-                        id="report-total-line"
-                        type="monotone" 
-                        dataKey="total" 
-                        stroke="#1f2937" 
-                        strokeWidth={2.5}
-                        dot={false}
-                        strokeDasharray="5 5"
-                        name="Total"
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
+          <div>
+            <h3 className="text-sm font-semibold text-gray-900 mb-3">
+              {viewMode === '7-day' ? '7-Day Trend' : 'Whole Month Trend'}
+            </h3>
+            <div id="report-chart" className="bg-white p-3 rounded-xl border border-gray-200">
+              <div className="h-52">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={chartData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                    <XAxis 
+                      dataKey="date" 
+                      tick={{ fontSize: 10 }} 
+                      tickMargin={5}
+                      interval={viewMode === 'whole-month' ? 'preserveStartEnd' : 0}
+                    />
+                    <YAxis tick={{ fontSize: 10 }} width={35} />
+                    <Tooltip 
+                      contentStyle={{ 
+                        backgroundColor: '#fff', 
+                        border: '1px solid #e5e7eb',
+                        borderRadius: '8px',
+                        fontSize: '11px'
+                      }}
+                    />
+                    <Line 
+                      id="report-node1-line"
+                      type="monotone" 
+                      dataKey="node1" 
+                      stroke="#9333ea" 
+                      strokeWidth={2} 
+                      dot={false}
+                      name={nodeSummaries[0]?.label || "Node 1"}
+                    />
+                    <Line 
+                      id="report-node2-line"
+                      type="monotone" 
+                      dataKey="node2" 
+                      stroke="#f97316" 
+                      strokeWidth={2} 
+                      dot={false}
+                      name={nodeSummaries[1]?.label || "Node 2"}
+                    />
+                    <Line 
+                      id="report-node3-line"
+                      type="monotone" 
+                      dataKey="node3" 
+                      stroke="#06b6d4" 
+                      strokeWidth={2} 
+                      dot={false}
+                      name={nodeSummaries[2]?.label || "Node 3"}
+                    />
+                    <Line 
+                      id="report-total-line"
+                      type="monotone" 
+                      dataKey="total" 
+                      stroke="#1f2937" 
+                      strokeWidth={2.5}
+                      dot={false}
+                      strokeDasharray="5 5"
+                      name="Total"
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
               </div>
             </div>
-          )}
-          
+          </div>
+           
           {/* Devices */}
-          {includeNodeTable && (
-            <div>
-              <h3 className="text-sm font-semibold text-gray-900 mb-3">Devices</h3>
+          <div>
+            <h3 className="text-sm font-semibold text-gray-900 mb-3">Devices</h3>
+            <div className="space-y-2">
+              {nodeSummaries.map((node, index) => (
+                <div key={node.nodeId} className={`p-3 rounded-xl ${
+                  index === 0 ? 'bg-purple-50 border border-purple-200' :
+                  index === 1 ? 'bg-orange-50 border border-orange-200' :
+                  'bg-cyan-50 border border-cyan-200'
+                }`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-semibold text-gray-900">{node.label}</span>
+                    <span className="text-sm font-bold text-gray-900">{node.monthKWh.toFixed(2)} kWh</span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs text-gray-600 mb-1">
+                    <span>Current: {Math.round(node.currentPower)} W</span>
+                    <span>Today: {node.todayKWh.toFixed(2)} kWh</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div className="flex w-full flex-col gap-1 text-xs text-gray-600 sm:flex-row sm:items-center sm:justify-between">
+                      <span className="leading-tight">Estimated Cost This Month:</span>
+                      <span className="text-sm font-bold text-blue-600">₱{node.monthEstimatedCost.toFixed(2)}</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+           
+          {/* Alerts */}
+          <div>
+            <h3 className="text-sm font-semibold text-gray-900 mb-3">Threshold Alerts ({alerts.length})</h3>
+            {alerts.length > 0 ? (
               <div className="space-y-2">
-                {nodeSummaries.map((node, index) => (
-                  <div key={node.nodeId} className={`p-3 rounded-xl ${
-                    index === 0 ? 'bg-purple-50 border border-purple-200' :
-                    index === 1 ? 'bg-orange-50 border border-orange-200' :
-                    'bg-cyan-50 border border-cyan-200'
-                  }`}>
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-semibold text-gray-900">{node.label}</span>
-                      <span className="text-sm font-bold text-gray-900">{node.monthKWh.toFixed(2)} kWh</span>
-                    </div>
-                    <div className="flex items-center justify-between text-xs text-gray-600 mb-1">
-                      <span>Current: {Math.round(node.currentPower)} W</span>
-                      <span>Today: {node.todayKWh.toFixed(2)} kWh</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <div className="flex w-full flex-col gap-1 text-xs text-gray-600 sm:flex-row sm:items-center sm:justify-between">
-                        <span className="leading-tight">Estimated Cost This Month:</span>
-                        <span className="text-sm font-bold text-blue-600">₱{node.monthEstimatedCost.toFixed(2)}</span>
-                      </div>
-                    </div>
+                {alerts.slice(0, 2).map((alert) => (
+                  <div key={alert.id} className="rounded-xl border border-orange-200 bg-orange-50 p-3">
+                    <p className="text-xs font-medium text-gray-900">{alert.message}</p>
+                    <p className="mt-1 text-xs text-gray-600">{alert.nodeLabel} • {alert.value}W / {alert.threshold}W</p>
+                    <p className="mt-1 text-[11px] text-gray-500">{alert.timestamp}</p>
                   </div>
                 ))}
               </div>
-            </div>
-          )}
-          
-          {/* Alerts */}
-          {includeAlerts && (
-            <div>
-              <h3 className="text-sm font-semibold text-gray-900 mb-3">Threshold Alerts ({alerts.length})</h3>
-              {alerts.length > 0 ? (
-                <div className="space-y-2">
-                  {alerts.slice(0, 2).map((alert) => (
-                    <div key={alert.id} className="rounded-xl border border-orange-200 bg-orange-50 p-3">
-                      <p className="text-xs font-medium text-gray-900">{alert.message}</p>
-                      <p className="mt-1 text-xs text-gray-600">{alert.nodeLabel} • {alert.value}W / {alert.threshold}W</p>
-                      <p className="mt-1 text-[11px] text-gray-500">{alert.timestamp}</p>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
-                  <p className="text-xs font-medium text-emerald-800">No active combined-threshold alert</p>
-                  <p className="mt-1 text-xs text-emerald-700">{thresholdStatusText}</p>
-                </div>
-              )}
-            </div>
-          )}
-          
-          {/* No Data States */}
-          {!includeCharts && !includeNodeTable && !includeAlerts && (
-            <div className="text-center py-8 text-gray-500">
-              <FileText className="w-12 h-12 mx-auto mb-2 text-gray-300" />
-              <p className="text-sm">No sections selected</p>
-              <p className="text-xs mt-1">Select at least one section to include in the report</p>
-            </div>
-          )}
+            ) : (
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+                <p className="text-xs font-medium text-emerald-800">No active combined-threshold alert</p>
+                <p className="mt-1 text-xs text-emerald-700">{thresholdStatusText}</p>
+              </div>
+            )}
+          </div>
         </div>
         </div>
       </div>
