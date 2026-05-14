@@ -16,6 +16,7 @@ const {
   validateRateUpsertPayload,
   validateRateDraftPayload,
   isMonthString,
+  isDayString,
   normalizeReading
 } = require("./validation");
 
@@ -309,6 +310,25 @@ app.get("/api/readings", async (req, res, next) => {
       count: data.length,
       data
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/readings/aggregate", async (req, res, next) => {
+  const fromDay = typeof req.query.from === "string" ? req.query.from : "";
+  const toDay = typeof req.query.to === "string" ? req.query.to : "";
+
+  if (!isDayString(fromDay) || !isDayString(toDay) || fromDay > toDay) {
+    return res.status(400).json({
+      message: "Invalid payload",
+      errors: ["from and to query parameters must be valid YYYY-MM-DD dates with from <= to"]
+    });
+  }
+
+  try {
+    const data = await store.getReadingAggregates({ fromDay, toDay });
+    return res.json(data);
   } catch (error) {
     next(error);
   }

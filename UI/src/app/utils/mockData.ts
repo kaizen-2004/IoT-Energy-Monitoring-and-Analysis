@@ -13,6 +13,12 @@ export interface ApiReading {
   receivedAt: string;
 }
 
+export interface ApiDailyEnergy {
+  applianceId: string;
+  date: string;
+  kWh: number;
+}
+
 export interface NodeSummary {
   nodeId: number;
   label: string;
@@ -232,6 +238,16 @@ function getPreviousMonth(monthKey: string) {
   return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
+function getDashboardAggregateRange(selectedMonth: string) {
+  const selectedMonthKeys = getMonthDayKeys(selectedMonth);
+  const previousMonthKeys = getMonthDayKeys(getPreviousMonth(selectedMonth));
+
+  return {
+    from: previousMonthKeys[0],
+    to: selectedMonthKeys[selectedMonthKeys.length - 1]
+  };
+}
+
 function getLastNDaysByMonthContext(days: number, selectedMonth: string) {
   const month = normalizeMonth(selectedMonth);
   const currentMonth = defaultMonth();
@@ -379,27 +395,51 @@ export async function deleteMonthlyRate(month: string): Promise<void> {
   });
 }
 
+function mapApiReading(row: unknown): ApiReading {
+  const value = row as Record<string, unknown>;
+  return {
+    nodeId: String(value.nodeId || ""),
+    applianceId: String(value.applianceId || ""),
+    applianceName: String(value.applianceName || ""),
+    currentRmsA: Number(value.currentRmsA || 0),
+    voltageRefV: Number(value.voltageRefV || 0),
+    powerW: Number(value.powerW || 0),
+    energyWh: value.energyWh === null ? null : Number(value.energyWh || 0),
+    frequencyHz: value.frequencyHz === null ? null : Number(value.frequencyHz || 0),
+    thresholdW: Number(value.thresholdW || 0),
+    abnormal: Boolean(value.abnormal),
+    timestamp: String(value.timestamp || new Date().toISOString()),
+    receivedAt: String(value.receivedAt || new Date().toISOString())
+  };
+}
+
 export async function fetchReadings(limit = 5000): Promise<ApiReading[]> {
   const payload = await fetchJson(`/api/readings?limit=${limit}`);
   const data = Array.isArray(payload.data) ? payload.data : [];
 
-  return data.map((row) => {
-    const value = row as Record<string, unknown>;
-    return {
-      nodeId: String(value.nodeId || ""),
-      applianceId: String(value.applianceId || ""),
-      applianceName: String(value.applianceName || ""),
-      currentRmsA: Number(value.currentRmsA || 0),
-      voltageRefV: Number(value.voltageRefV || 0),
-      powerW: Number(value.powerW || 0),
-      energyWh: value.energyWh === null ? null : Number(value.energyWh || 0),
-      frequencyHz: value.frequencyHz === null ? null : Number(value.frequencyHz || 0),
-      thresholdW: Number(value.thresholdW || 0),
-      abnormal: Boolean(value.abnormal),
-      timestamp: String(value.timestamp || new Date().toISOString()),
-      receivedAt: String(value.receivedAt || new Date().toISOString())
-    };
-  });
+  return data.map(mapApiReading);
+}
+
+export async function fetchReadingAggregates(
+  fromDay: string,
+  toDay: string
+): Promise<{ daily: ApiDailyEnergy[]; latest: ApiReading[] }> {
+  const params = new URLSearchParams({ from: fromDay, to: toDay });
+  const payload = await fetchJson(`/api/readings/aggregate?${params.toString()}`);
+  const dailyRows = Array.isArray(payload.daily) ? payload.daily : [];
+  const latestRows = Array.isArray(payload.latest) ? payload.latest : [];
+
+  return {
+    daily: dailyRows.map((row) => {
+      const value = row as Record<string, unknown>;
+      return {
+        applianceId: String(value.applianceId || ""),
+        date: String(value.date || ""),
+        kWh: Number(value.kWh || 0)
+      };
+    }),
+    latest: latestRows.map(mapApiReading)
+  };
 }
 
 function computeDailyByAppliance(readings: ApiReading[]) {
@@ -436,6 +476,22 @@ function computeDailyByAppliance(readings: ApiReading[]) {
     }
 
     dailyByAppliance.set(applianceId, totals);
+  });
+
+  return dailyByAppliance;
+}
+
+function buildDailyByApplianceFromSummaries(summaries: ApiDailyEnergy[]) {
+  const dailyByAppliance = new Map<string, Record<string, number>>();
+
+  summaries.forEach((summary) => {
+    if (!summary.applianceId || !summary.date) {
+      return;
+    }
+
+    const totals = dailyByAppliance.get(summary.applianceId) || {};
+    totals[summary.date] = (totals[summary.date] || 0) + summary.kWh;
+    dailyByAppliance.set(summary.applianceId, totals);
   });
 
   return dailyByAppliance;
@@ -699,11 +755,11 @@ export async function fetchDashboardViewData(options: {
   const settings = await fetchAppSettings();
   const selectedMonth = normalizeMonth(options.selectedMonth || settings.effectiveMonth);
   const rate = resolveRateForMonth(settings.rateHistory, selectedMonth, settings.electricityRate);
-
-  const readings = await fetchReadings(5000);
-  const latestByAppliance = buildLatestByAppliance(readings);
   const selectedAppliances = [...MONITORED_APPLIANCES];
-  const dailyByAppliance = computeDailyByAppliance(readings);
+  const aggregateRange = getDashboardAggregateRange(selectedMonth);
+  const aggregates = await fetchReadingAggregates(aggregateRange.from, aggregateRange.to);
+  const latestByAppliance = buildLatestByAppliance(aggregates.latest);
+  const dailyByAppliance = buildDailyByApplianceFromSummaries(aggregates.daily);
   const chartData = buildChartData(options.chartMode, selectedMonth, selectedAppliances, dailyByAppliance);
   const nodeSummaries = buildNodeSummaries(
     selectedMonth,

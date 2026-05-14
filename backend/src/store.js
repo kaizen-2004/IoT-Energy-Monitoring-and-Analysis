@@ -128,6 +128,14 @@ function mapReadingRow(row) {
   };
 }
 
+function mapDailyEnergyRow(row) {
+  return {
+    applianceId: row.appliance_id,
+    date: row.day_key,
+    kWh: Number(row.kwh || 0)
+  };
+}
+
 class ReadingStore {
   constructor() {
     this.settingsInitPromise = null;
@@ -280,6 +288,88 @@ class ReadingStore {
     const params = hasFilter ? [applianceId, limit] : [limit];
     const result = await query(sql, params);
     return result.rows.map(mapReadingRow);
+  }
+
+  async getReadingAggregates({ fromDay, toDay }) {
+    const timezone = DEFAULT_SETTINGS.timezone;
+
+    const dailySql = `
+      WITH bounds AS (
+        SELECT
+          ($1::date::timestamp AT TIME ZONE $3) AS start_ts,
+          (($2::date + 1)::timestamp AT TIME ZONE $3) AS end_ts
+      ),
+      seeded_readings AS (
+        SELECT
+          r.appliance_id,
+          r.power_w,
+          r.reading_ts
+        FROM readings r
+        CROSS JOIN bounds b
+        WHERE r.appliance_id = ANY($4::text[])
+          AND r.reading_ts >= b.start_ts - INTERVAL '1 day'
+          AND r.reading_ts < b.end_ts
+      ),
+      ordered_readings AS (
+        SELECT
+          appliance_id,
+          power_w,
+          reading_ts,
+          LAG(power_w) OVER (PARTITION BY appliance_id ORDER BY reading_ts) AS previous_power_w,
+          LAG(reading_ts) OVER (PARTITION BY appliance_id ORDER BY reading_ts) AS previous_reading_ts
+        FROM seeded_readings
+      ),
+      intervals AS (
+        SELECT
+          o.appliance_id,
+          to_char(o.reading_ts AT TIME ZONE $3, 'YYYY-MM-DD') AS day_key,
+          EXTRACT(EPOCH FROM (o.reading_ts - o.previous_reading_ts)) / 3600.0 AS delta_hours,
+          (o.previous_power_w + o.power_w) / 2.0 AS average_power_w
+        FROM ordered_readings o
+        CROSS JOIN bounds b
+        WHERE o.previous_reading_ts IS NOT NULL
+          AND o.reading_ts >= b.start_ts
+          AND o.reading_ts < b.end_ts
+      )
+      SELECT
+        appliance_id,
+        day_key,
+        SUM((average_power_w * delta_hours) / 1000.0) AS kwh
+      FROM intervals
+      WHERE delta_hours > 0
+        AND delta_hours <= 24
+      GROUP BY appliance_id, day_key
+      ORDER BY appliance_id, day_key
+    `;
+
+    const latestSql = `
+      SELECT DISTINCT ON (appliance_id)
+        node_id,
+        appliance_id,
+        appliance_name,
+        current_rms_a,
+        voltage_ref_v,
+        power_w,
+        energy_wh,
+        frequency_hz,
+        threshold_w,
+        abnormal,
+        reading_ts,
+        received_at
+      FROM readings
+      WHERE appliance_id = ANY($1::text[])
+      ORDER BY appliance_id, reading_ts DESC
+    `;
+
+    const [dailyResult, latestResult] = await Promise.all([
+      query(dailySql, [fromDay, toDay, timezone, MONITORED_APPLIANCES]),
+      query(latestSql, [MONITORED_APPLIANCES])
+    ]);
+
+    return {
+      daily: dailyResult.rows.map(mapDailyEnergyRow),
+      latest: latestResult.rows.map(mapReadingRow)
+    };
   }
 
   async getAlerts(limit) {
