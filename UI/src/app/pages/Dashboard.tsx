@@ -58,10 +58,13 @@ const EMPTY_COMBINED_METRICS: CombinedMetrics = {
   monthKWh: 0,
   todayCost: 0,
   monthCost: 0,
-  totalThresholdW: 0,
+  totalMonthlyLimitKWh: 0,
+  enabledMonthlyLimitCount: 0,
+  monthlyLimitAlertCount: 0,
+  remainingMonthlyLimitKWh: 0,
+  exceededMonthlyLimitKWh: 0,
   currentPowerW: 0,
-  remainingThresholdW: 0,
-  overThreshold: false,
+  overMonthlyLimit: false,
 };
 
 function shiftMonth(month: string, offset: number) {
@@ -334,38 +337,56 @@ export default function Dashboard() {
         <div className="rounded-2xl border border-white/15 bg-slate-950/15 p-4 backdrop-blur-sm">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <p className="text-xs font-medium uppercase tracking-[0.2em] text-blue-100/80">Combined Threshold</p>
-              <h2 className="mt-1 text-lg font-semibold text-white">3-Appliance Load Budget</h2>
+              <p className="text-xs font-medium uppercase tracking-[0.2em] text-blue-100/80">Monthly Limits</p>
+              <h2 className="mt-1 text-lg font-semibold text-white">Appliance Energy Budget</h2>
               <p className="mt-1 text-xs text-blue-100/90">
-                One appliance can go above its own threshold as long as the combined load stays within the total limit.
+                Each appliance is checked against its own monthly kWh limit. A 0 kWh limit disables alerts.
               </p>
             </div>
             <span
               className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
-                combinedMetrics.overThreshold
+                combinedMetrics.enabledMonthlyLimitCount === 0
+                  ? 'bg-slate-500/20 text-slate-100'
+                  : combinedMetrics.overMonthlyLimit
                   ? 'bg-red-500/20 text-red-100'
                   : 'bg-emerald-500/20 text-emerald-100'
               }`}
             >
-              {combinedMetrics.overThreshold ? 'Over Threshold' : 'Within Threshold'}
+              {combinedMetrics.enabledMonthlyLimitCount === 0
+                ? 'Limits Disabled'
+                : combinedMetrics.overMonthlyLimit
+                  ? 'Limit Exceeded'
+                  : 'Within Limits'}
             </span>
           </div>
 
           <div className="mt-4 grid gap-3 sm:grid-cols-3">
             <div className="rounded-xl bg-white/10 p-3">
-              <p className="text-xs text-blue-100">Total Threshold</p>
-              <p className="mt-1 text-2xl font-bold text-white">{Math.round(combinedMetrics.totalThresholdW)}W</p>
+              <p className="text-xs text-blue-100">Configured Monthly Limit</p>
+              <p className="mt-1 text-2xl font-bold text-white">
+                {combinedMetrics.enabledMonthlyLimitCount > 0
+                  ? `${combinedMetrics.totalMonthlyLimitKWh.toFixed(2)} kWh`
+                  : 'Off'}
+              </p>
             </div>
             <div className="rounded-xl bg-white/10 p-3">
-              <p className="text-xs text-blue-100">Current Combined Load</p>
-              <p className="mt-1 text-2xl font-bold text-white">{Math.round(combinedMetrics.currentPowerW)}W</p>
+              <p className="text-xs text-blue-100">Used This Month</p>
+              <p className="mt-1 text-2xl font-bold text-white">{combinedMetrics.monthKWh.toFixed(2)} kWh</p>
             </div>
             <div className="rounded-xl bg-white/10 p-3">
               <p className="text-xs text-blue-100">
-                {combinedMetrics.overThreshold ? 'Exceeded By' : 'Remaining Capacity'}
+                {combinedMetrics.enabledMonthlyLimitCount === 0
+                  ? 'Alert Status'
+                  : combinedMetrics.overMonthlyLimit
+                    ? 'Exceeded Total'
+                    : 'Remaining Budget'}
               </p>
               <p className="mt-1 text-2xl font-bold text-white">
-                {Math.round(Math.abs(combinedMetrics.remainingThresholdW))}W
+                {combinedMetrics.enabledMonthlyLimitCount === 0
+                  ? 'Disabled'
+                  : combinedMetrics.overMonthlyLimit
+                    ? `${combinedMetrics.exceededMonthlyLimitKWh.toFixed(2)} kWh`
+                    : `${combinedMetrics.remainingMonthlyLimitKWh.toFixed(2)} kWh`}
               </p>
             </div>
           </div>
@@ -570,7 +591,7 @@ export default function Dashboard() {
         <div className="space-y-4 xl:sticky xl:top-6 xl:self-start xl:max-h-[calc(100vh-7.5rem)] xl:overflow-y-auto xl:pr-1">
           <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm sm:p-5">
             <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-gray-900">Active Alerts</h2>
+              <h2 className="text-lg font-semibold text-gray-900">Monthly Limit Alerts</h2>
               <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">
                 {alerts.length}
               </span>
@@ -579,7 +600,11 @@ export default function Dashboard() {
             {alerts.length === 0 ? (
               <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-6 text-center">
                 <p className="text-sm font-medium text-slate-700">No active alerts</p>
-                <p className="mt-1 text-xs text-slate-500">Combined load is within the total threshold budget.</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  {combinedMetrics.enabledMonthlyLimitCount === 0
+                    ? 'Monthly kWh limit alerts are disabled until you set a device limit.'
+                    : 'All monitored appliances are within their monthly kWh limits.'}
+                </p>
               </div>
             ) : (
               <div className="space-y-2">
@@ -594,7 +619,7 @@ export default function Dashboard() {
                         <div className="flex items-center gap-2 text-xs text-gray-600">
                           <span>{alert.nodeLabel}</span>
                           <span>•</span>
-                          <span>{alert.value}W / {alert.threshold}W</span>
+                          <span>{alert.value.toFixed(2)} kWh / {alert.threshold.toFixed(2)} kWh</span>
                         </div>
                         <p className="mt-1 text-xs text-gray-500">{alert.timestamp}</p>
                       </div>
@@ -653,6 +678,12 @@ export default function Dashboard() {
                     </div>
 
                     <div className="mt-3 border-t border-gray-100 pt-3">
+                      <p className={`mb-1 text-xs ${node.monthlyLimitExceeded ? 'text-red-600' : 'text-gray-500'}`}>
+                        Monthly limit:{' '}
+                        {node.monthlyLimitKWh > 0
+                          ? `${node.monthKWh.toFixed(2)} / ${node.monthlyLimitKWh.toFixed(2)} kWh`
+                          : 'Off'}
+                      </p>
                       <p className="text-xs text-gray-400">Device ID: {node.deviceId}</p>
                     </div>
                   </div>

@@ -26,7 +26,7 @@ function resolveRateForMonth(rates: MonthlyRate[], month: string, fallback = 11.
 }
 
 export default function Settings() {
-  const defaultThresholds = [500, 800, 600];
+  const defaultMonthlyLimits = [0, 0, 0];
 
   // Billing Settings
   const [selectedRateMonth, setSelectedRateMonth] = useState<string>(defaultMonth());
@@ -39,9 +39,9 @@ export default function Settings() {
   const [node2Label, setNode2Label] = useState<string>('Air Conditioner');
   const [node3Label, setNode3Label] = useState<string>('Water Heater');
   
-  const [node1Threshold, setNode1Threshold] = useState<string>('500');
-  const [node2Threshold, setNode2Threshold] = useState<string>('800');
-  const [node3Threshold, setNode3Threshold] = useState<string>('600');
+  const [node1MonthlyLimit, setNode1MonthlyLimit] = useState<string>('0');
+  const [node2MonthlyLimit, setNode2MonthlyLimit] = useState<string>('0');
+  const [node3MonthlyLimit, setNode3MonthlyLimit] = useState<string>('0');
   
   // Insight Settings
   const [timezone, setTimezone] = useState<string>('Asia/Manila');
@@ -50,12 +50,12 @@ export default function Settings() {
   const [securityCurrentCan, setSecurityCurrentCan] = useState<string>('');
   const [securityNewCan, setSecurityNewCan] = useState<string>('');
 
-  const parsedThresholds = [node1Threshold, node2Threshold, node3Threshold].map((value, index) => {
-    const threshold = Number.parseFloat(value);
-    return Number.isFinite(threshold) && threshold >= 0 ? threshold : defaultThresholds[index];
+  const parsedMonthlyLimits = [node1MonthlyLimit, node2MonthlyLimit, node3MonthlyLimit].map((value, index) => {
+    const monthlyLimit = Number.parseFloat(value);
+    return Number.isFinite(monthlyLimit) && monthlyLimit >= 0 ? monthlyLimit : defaultMonthlyLimits[index];
   });
 
-  const totalThreshold = parsedThresholds.reduce((sum, value) => sum + value, 0);
+  const totalMonthlyLimit = parsedMonthlyLimits.reduce((sum, value) => sum + value, 0);
 
   const applySettings = (settings: AppSettings, rates: MonthlyRate[]) => {
     setMonthlyRates(rates);
@@ -66,9 +66,9 @@ export default function Settings() {
     setNode2Label(settings.nodeLabels[1] || 'Air Conditioner');
     setNode3Label(settings.nodeLabels[2] || 'Water Heater');
 
-    setNode1Threshold(String(settings.nodeThresholds[0] ?? 500));
-    setNode2Threshold(String(settings.nodeThresholds[1] ?? 800));
-    setNode3Threshold(String(settings.nodeThresholds[2] ?? 600));
+    setNode1MonthlyLimit(String(settings.nodeMonthlyLimitsKWh[0] ?? 0));
+    setNode2MonthlyLimit(String(settings.nodeMonthlyLimitsKWh[1] ?? 0));
+    setNode3MonthlyLimit(String(settings.nodeMonthlyLimitsKWh[2] ?? 0));
     setTimezone(settings.timezone || 'Asia/Manila');
   };
   
@@ -139,12 +139,12 @@ export default function Settings() {
   
   const handleSaveNodes = async () => {
     const labels = [node1Label, node2Label, node3Label];
-    const thresholds = parsedThresholds;
+    const monthlyLimits = parsedMonthlyLimits;
 
     try {
       const settings = await saveAppSettings({
         nodeLabels: labels,
-        nodeThresholds: thresholds
+        nodeMonthlyLimitsKWh: monthlyLimits
       });
       applySettings(settings, settings.rateHistory || monthlyRates);
       toast.success('Node settings saved');
@@ -337,18 +337,20 @@ export default function Settings() {
               </div>
               
               <div>
-                <label htmlFor="node1-threshold" className="block text-xs font-medium text-gray-700 mb-1.5">
-                  Alert Threshold (Watts)
+                <label htmlFor="node1-monthly-limit" className="block text-xs font-medium text-gray-700 mb-1.5">
+                  Monthly Limit (kWh)
                 </label>
                 <input
-                  id="node1-threshold"
+                  id="node1-monthly-limit"
                   type="number"
                   min="0"
-                  value={node1Threshold}
-                  onChange={(e) => setNode1Threshold(e.target.value)}
+                  step="0.01"
+                  value={node1MonthlyLimit}
+                  onChange={(e) => setNode1MonthlyLimit(e.target.value)}
                   className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 min-h-[44px]"
-                  placeholder="500"
+                  placeholder="0"
                 />
+                <p className="mt-1 text-[11px] text-gray-500">Set 0 to disable monthly alerts for this device.</p>
               </div>
             </div>
           </div>
@@ -372,18 +374,20 @@ export default function Settings() {
               </div>
               
               <div>
-                <label htmlFor="node2-threshold" className="block text-xs font-medium text-gray-700 mb-1.5">
-                  Alert Threshold (Watts)
+                <label htmlFor="node2-monthly-limit" className="block text-xs font-medium text-gray-700 mb-1.5">
+                  Monthly Limit (kWh)
                 </label>
                 <input
-                  id="node2-threshold"
+                  id="node2-monthly-limit"
                   type="number"
                   min="0"
-                  value={node2Threshold}
-                  onChange={(e) => setNode2Threshold(e.target.value)}
+                  step="0.01"
+                  value={node2MonthlyLimit}
+                  onChange={(e) => setNode2MonthlyLimit(e.target.value)}
                   className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 min-h-[44px]"
-                  placeholder="800"
+                  placeholder="0"
                 />
+                <p className="mt-1 text-[11px] text-gray-500">Set 0 to disable monthly alerts for this device.</p>
               </div>
             </div>
           </div>
@@ -407,18 +411,20 @@ export default function Settings() {
               </div>
               
               <div>
-                <label htmlFor="node3-threshold" className="block text-xs font-medium text-gray-700 mb-1.5">
-                  Alert Threshold (Watts)
+                <label htmlFor="node3-monthly-limit" className="block text-xs font-medium text-gray-700 mb-1.5">
+                  Monthly Limit (kWh)
                 </label>
                 <input
-                  id="node3-threshold"
+                  id="node3-monthly-limit"
                   type="number"
                   min="0"
-                  value={node3Threshold}
-                  onChange={(e) => setNode3Threshold(e.target.value)}
+                  step="0.01"
+                  value={node3MonthlyLimit}
+                  onChange={(e) => setNode3MonthlyLimit(e.target.value)}
                   className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 min-h-[44px]"
-                  placeholder="600"
+                  placeholder="0"
                 />
+                <p className="mt-1 text-[11px] text-gray-500">Set 0 to disable monthly alerts for this device.</p>
                </div>
              </div>
            </div>
@@ -426,17 +432,17 @@ export default function Settings() {
           <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <h3 className="text-sm font-semibold text-gray-900">Total Threshold</h3>
+                <h3 className="text-sm font-semibold text-gray-900">Monthly Energy Limits</h3>
                 <p className="mt-1 text-xs text-gray-600">
-                  Combined threshold used for alerts across the three monitored appliances.
+                  Alerts trigger when a device exceeds its own configured monthly kWh limit.
                 </p>
               </div>
               <span className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-700">
-                {Math.round(totalThreshold)}W
+                {totalMonthlyLimit.toFixed(2)} kWh
               </span>
             </div>
             <p className="mt-3 text-xs text-blue-800">
-              One appliance may exceed its own threshold as long as the total combined load stays within {Math.round(totalThreshold)}W.
+              A 0 kWh limit disables monthly alerts for that device.
             </p>
           </div>
             

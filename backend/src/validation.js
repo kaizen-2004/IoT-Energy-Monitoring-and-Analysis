@@ -148,12 +148,12 @@ function validateSettingsPayload(body) {
     body.electricityRate !== undefined ||
     body.effectiveMonth !== undefined ||
     body.nodeLabels !== undefined ||
-    body.nodeThresholds !== undefined ||
+    body.nodeMonthlyLimitsKWh !== undefined ||
     body.timezone !== undefined;
 
   if (!hasAnyKnownField) {
     errors.push(
-      "provide at least one of: electricityRate, effectiveMonth, nodeLabels, nodeThresholds, timezone"
+      "provide at least one of: electricityRate, effectiveMonth, nodeLabels, nodeMonthlyLimitsKWh, timezone"
     );
   }
 
@@ -179,13 +179,13 @@ function validateSettingsPayload(body) {
     }
   }
 
-  if (body.nodeThresholds !== undefined) {
-    const validThresholds =
-      Array.isArray(body.nodeThresholds) &&
-      body.nodeThresholds.length === 3 &&
-      body.nodeThresholds.every((value) => isNumber(value) && value >= 0);
-    if (!validThresholds) {
-      errors.push("nodeThresholds must be an array of 3 finite numbers >= 0");
+  if (body.nodeMonthlyLimitsKWh !== undefined) {
+    const validMonthlyLimits =
+      Array.isArray(body.nodeMonthlyLimitsKWh) &&
+      body.nodeMonthlyLimitsKWh.length === 3 &&
+      body.nodeMonthlyLimitsKWh.every((value) => isNumber(value) && value >= 0);
+    if (!validMonthlyLimits) {
+      errors.push("nodeMonthlyLimitsKWh must be an array of 3 finite numbers >= 0");
     }
   }
 

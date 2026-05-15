@@ -26,6 +26,8 @@ export interface NodeSummary {
   todayKWh: number;
   yesterdayKWh: number;
   monthKWh: number;
+  monthlyLimitKWh: number;
+  monthlyLimitExceeded: boolean;
   currentPower: number;
   estimatedCost: number;
   monthEstimatedCost: number;
@@ -63,10 +65,13 @@ export interface CombinedMetrics {
   monthKWh: number;
   todayCost: number;
   monthCost: number;
-  totalThresholdW: number;
+  totalMonthlyLimitKWh: number;
+  enabledMonthlyLimitCount: number;
+  monthlyLimitAlertCount: number;
+  remainingMonthlyLimitKWh: number;
+  exceededMonthlyLimitKWh: number;
   currentPowerW: number;
-  remainingThresholdW: number;
-  overThreshold: boolean;
+  overMonthlyLimit: boolean;
 }
 
 export interface ComparisonData {
@@ -88,7 +93,7 @@ export interface AppSettings {
   electricityRate: number;
   effectiveMonth: string;
   nodeLabels: string[];
-  nodeThresholds: number[];
+  nodeMonthlyLimitsKWh: number[];
   timezone: string;
   updatedAt: string | null;
   rateHistory: MonthlyRate[];
@@ -107,7 +112,7 @@ export interface DashboardViewData {
 
 const PHT_TIMEZONE = "Asia/Manila";
 const DEFAULT_NODE_LABELS = ["Refrigerator", "Air Conditioner", "Water Heater"];
-const DEFAULT_NODE_THRESHOLDS = [500, 800, 600];
+const DEFAULT_NODE_MONTHLY_LIMITS_KWH = [0, 0, 0];
 const DEFAULT_NODE_IDS = ["node-01", "node-02", "node-03"];
 const DEFAULT_RATE = 11.5;
 const MONITORED_APPLIANCES = ["appliance-01", "appliance-02", "appliance-03"];
@@ -307,11 +312,11 @@ function normalizeLabels(input: unknown) {
   });
 }
 
-function normalizeThresholds(input: unknown) {
-  if (!Array.isArray(input)) return DEFAULT_NODE_THRESHOLDS;
+function normalizeMonthlyLimitsKWh(input: unknown) {
+  if (!Array.isArray(input)) return DEFAULT_NODE_MONTHLY_LIMITS_KWH;
   return [0, 1, 2].map((index) => {
     const value = Number(input[index]);
-    return Number.isFinite(value) && value >= 0 ? value : DEFAULT_NODE_THRESHOLDS[index];
+    return Number.isFinite(value) && value >= 0 ? value : DEFAULT_NODE_MONTHLY_LIMITS_KWH[index];
   });
 }
 
@@ -320,7 +325,7 @@ function mapSettingsPayload(data: Record<string, unknown>, rateHistoryRaw: unkno
     electricityRate: Number(data.electricityRate ?? DEFAULT_RATE),
     effectiveMonth: normalizeMonth(typeof data.effectiveMonth === "string" ? data.effectiveMonth : undefined),
     nodeLabels: normalizeLabels(data.nodeLabels),
-    nodeThresholds: normalizeThresholds(data.nodeThresholds),
+    nodeMonthlyLimitsKWh: normalizeMonthlyLimitsKWh(data.nodeMonthlyLimitsKWh),
     timezone: typeof data.timezone === "string" && data.timezone.trim() ? data.timezone : PHT_TIMEZONE,
     updatedAt: typeof data.updatedAt === "string" ? data.updatedAt : null,
     rateHistory: rateHistoryRaw.map((row) => mapRate(row as Record<string, unknown>)),
@@ -567,6 +572,7 @@ function buildNodeSummaries(
   selectedMonth: string,
   rate: number,
   labels: string[],
+  monthlyLimitsKWh: number[],
   selectedAppliances: string[],
   dailyByAppliance: Map<string, Record<string, number>>,
   latestByAppliance: Map<string, ApiReading>
@@ -581,6 +587,7 @@ function buildNodeSummaries(
     const todayKWh = daily[todayKey] || 0;
     const yesterdayKWh = daily[yesterdayKey] || 0;
     const monthKWh = sumByKeys(daily, monthKeys);
+    const monthlyLimitKWh = monthlyLimitsKWh[index] || 0;
 
     return {
       nodeId: index + 1,
@@ -589,6 +596,8 @@ function buildNodeSummaries(
       todayKWh,
       yesterdayKWh,
       monthKWh,
+      monthlyLimitKWh,
+      monthlyLimitExceeded: monthlyLimitKWh > 0 && monthKWh > monthlyLimitKWh,
       currentPower: latest?.powerW || 0,
       estimatedCost: todayKWh * rate,
       monthEstimatedCost: monthKWh * rate
@@ -612,61 +621,52 @@ function buildTotalByDay(
   return totals;
 }
 
-function buildCombinedMetrics(nodeSummaries: NodeSummary[], thresholds: number[], rate: number): CombinedMetrics {
+function buildCombinedMetrics(nodeSummaries: NodeSummary[], rate: number): CombinedMetrics {
   const todayKWh = nodeSummaries.reduce((sum, node) => sum + node.todayKWh, 0);
   const monthKWh = nodeSummaries.reduce((sum, node) => sum + node.monthKWh, 0);
   const currentPowerW = nodeSummaries.reduce((sum, node) => sum + node.currentPower, 0);
-  const totalThresholdW = thresholds.reduce((sum, value) => sum + value, 0);
+  const limitedNodes = nodeSummaries.filter((node) => node.monthlyLimitKWh > 0);
+  const totalMonthlyLimitKWh = limitedNodes.reduce((sum, node) => sum + node.monthlyLimitKWh, 0);
+  const remainingMonthlyLimitKWh = limitedNodes.reduce(
+    (sum, node) => sum + Math.max(node.monthlyLimitKWh - node.monthKWh, 0),
+    0
+  );
+  const exceededMonthlyLimitKWh = limitedNodes.reduce(
+    (sum, node) => sum + Math.max(node.monthKWh - node.monthlyLimitKWh, 0),
+    0
+  );
+  const monthlyLimitAlertCount = limitedNodes.filter((node) => node.monthlyLimitExceeded).length;
 
   return {
     todayKWh: Number(todayKWh.toFixed(3)),
     monthKWh: Number(monthKWh.toFixed(3)),
     todayCost: Number((todayKWh * rate).toFixed(2)),
     monthCost: Number((monthKWh * rate).toFixed(2)),
-    totalThresholdW: Number(totalThresholdW.toFixed(1)),
+    totalMonthlyLimitKWh: Number(totalMonthlyLimitKWh.toFixed(3)),
+    enabledMonthlyLimitCount: limitedNodes.length,
+    monthlyLimitAlertCount,
+    remainingMonthlyLimitKWh: Number(remainingMonthlyLimitKWh.toFixed(3)),
+    exceededMonthlyLimitKWh: Number(exceededMonthlyLimitKWh.toFixed(3)),
     currentPowerW: Number(currentPowerW.toFixed(1)),
-    remainingThresholdW: Number((totalThresholdW - currentPowerW).toFixed(1)),
-    overThreshold: currentPowerW > totalThresholdW
+    overMonthlyLimit: monthlyLimitAlertCount > 0
   };
 }
 
 function buildCombinedAlerts(
-  selectedAppliances: string[],
-  latestByAppliance: Map<string, ApiReading>,
-  combinedMetrics: CombinedMetrics
+  nodeSummaries: NodeSummary[],
+  selectedMonth: string
 ): Alert[] {
-  if (!combinedMetrics.overThreshold) {
-    return [];
-  }
-
-  const latestTimestamp = selectedAppliances.reduce<string | null>((currentLatest, applianceId) => {
-    const reading = latestByAppliance.get(applianceId);
-    if (!reading?.timestamp) {
-      return currentLatest;
-    }
-
-    if (!currentLatest) {
-      return reading.timestamp;
-    }
-
-    return new Date(reading.timestamp).getTime() > new Date(currentLatest).getTime()
-      ? reading.timestamp
-      : currentLatest;
-  }, null);
-
-  return [
-    {
-      id: "combined-threshold-alert",
-      timestamp: latestTimestamp ? formatTimestampPht(latestTimestamp) : getPHTTime(),
-      nodeId: 0,
-      nodeLabel: "3-Appliance Total",
-      value: Math.round(combinedMetrics.currentPowerW),
-      threshold: Math.round(combinedMetrics.totalThresholdW),
-      message: `Combined appliance load exceeded the total threshold of ${Math.round(
-        combinedMetrics.totalThresholdW
-      )}W`
-    }
-  ];
+  return nodeSummaries
+    .filter((node) => node.monthlyLimitExceeded)
+    .map((node) => ({
+      id: `node-${node.nodeId}-monthly-limit-alert`,
+      timestamp: monthLabel(selectedMonth),
+      nodeId: node.nodeId,
+      nodeLabel: node.label,
+      value: Number(node.monthKWh.toFixed(2)),
+      threshold: Number(node.monthlyLimitKWh.toFixed(2)),
+      message: `${node.label} exceeded the monthly limit of ${node.monthlyLimitKWh.toFixed(2)} kWh (${node.monthKWh.toFixed(2)} kWh used).`
+    }));
 }
 
 function computeComparisonData(
@@ -734,19 +734,6 @@ function computeComparisonData(
   };
 }
 
-function formatTimestampPht(timestamp: string) {
-  const date = new Date(timestamp);
-  if (Number.isNaN(date.getTime())) {
-    return timestamp;
-  }
-
-  return date.toLocaleString("en-PH", {
-    timeZone: PHT_TIMEZONE,
-    dateStyle: "medium",
-    timeStyle: "short"
-  });
-}
-
 export async function fetchDashboardViewData(options: {
   selectedMonth?: string;
   chartMode: ChartMode;
@@ -765,12 +752,13 @@ export async function fetchDashboardViewData(options: {
     selectedMonth,
     rate,
     settings.nodeLabels,
+    settings.nodeMonthlyLimitsKWh,
     selectedAppliances,
     dailyByAppliance,
     latestByAppliance
   );
-  const combinedMetrics = buildCombinedMetrics(nodeSummaries, settings.nodeThresholds, rate);
-  const alerts = buildCombinedAlerts(selectedAppliances, latestByAppliance, combinedMetrics);
+  const combinedMetrics = buildCombinedMetrics(nodeSummaries, rate);
+  const alerts = buildCombinedAlerts(nodeSummaries, selectedMonth);
   const totalsByDay = buildTotalByDay(selectedAppliances, dailyByAppliance);
   const comparisonData = computeComparisonData(options.comparisonMode, selectedMonth, totalsByDay);
 

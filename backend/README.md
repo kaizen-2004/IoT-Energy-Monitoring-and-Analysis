@@ -25,9 +25,10 @@ Node.js/Express starter backend for:
 - `GET /api/summary?windowMinutes=60`
 - `GET /api/alerts?limit=50`
 
-`GET /api/alerts` now reports a combined alert only when the total live load of
-`appliance-01`, `appliance-02`, and `appliance-03` exceeds the total configured
-threshold from `app_settings.node_thresholds`.
+`GET /api/alerts` reports per-appliance monthly limit alerts when the current
+month's calculated kWh exceeds that appliance's configured limit from
+`app_settings.node_monthly_limits_kwh`. A `0` limit disables alerts for that
+appliance.
 
 ## Run
 

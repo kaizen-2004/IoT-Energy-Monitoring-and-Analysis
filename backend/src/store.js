@@ -2,12 +2,14 @@ const { query } = require("./db");
 
 const DEFAULT_NODE_LABELS = ["Node 1", "Node 2", "Node 3"];
 const DEFAULT_NODE_THRESHOLDS = [500, 800, 600];
+const DEFAULT_NODE_MONTHLY_LIMITS_KWH = [0, 0, 0];
 const MONITORED_APPLIANCES = ["appliance-01", "appliance-02", "appliance-03"];
 const DEFAULT_SETTINGS = {
   electricityRate: 11.5,
   effectiveMonth: new Date().toISOString().slice(0, 7),
   nodeLabels: DEFAULT_NODE_LABELS,
   nodeThresholds: DEFAULT_NODE_THRESHOLDS,
+  nodeMonthlyLimitsKWh: DEFAULT_NODE_MONTHLY_LIMITS_KWH,
   timezone: "Asia/Manila",
   customerAccountNumberConfigured: false
 };
@@ -91,6 +93,19 @@ function normalizeNodeThresholds(value) {
   });
 }
 
+function normalizeNodeMonthlyLimitsKWh(value) {
+  if (!Array.isArray(value)) {
+    return DEFAULT_NODE_MONTHLY_LIMITS_KWH;
+  }
+
+  return [0, 1, 2].map((index) => {
+    const limit = Number(value[index]);
+    return Number.isFinite(limit) && limit >= 0
+      ? limit
+      : DEFAULT_NODE_MONTHLY_LIMITS_KWH[index];
+  });
+}
+
 function mapSettingsRow(row) {
   return {
     electricityRate:
@@ -102,6 +117,7 @@ function mapSettingsRow(row) {
       : DEFAULT_SETTINGS.effectiveMonth,
     nodeLabels: normalizeNodeLabels(row.node_labels),
     nodeThresholds: normalizeNodeThresholds(row.node_thresholds),
+    nodeMonthlyLimitsKWh: normalizeNodeMonthlyLimitsKWh(row.node_monthly_limits_kwh),
     timezone:
       typeof row.timezone === "string" && row.timezone.trim().length > 0
         ? row.timezone.trim()
@@ -151,6 +167,7 @@ class ReadingStore {
             effective_month DATE NOT NULL DEFAULT date_trunc('month', now())::date,
             node_labels JSONB NOT NULL DEFAULT '["Node 1","Node 2","Node 3"]'::jsonb,
             node_thresholds JSONB NOT NULL DEFAULT '[500,800,600]'::jsonb,
+            node_monthly_limits_kwh JSONB NOT NULL DEFAULT '[0,0,0]'::jsonb,
             timezone TEXT NOT NULL DEFAULT 'Asia/Manila',
             customer_account_number_hash TEXT,
             can_updated_at TIMESTAMPTZ,
@@ -161,7 +178,8 @@ class ReadingStore {
         await query(`
           ALTER TABLE app_settings
             ADD COLUMN IF NOT EXISTS customer_account_number_hash TEXT,
-            ADD COLUMN IF NOT EXISTS can_updated_at TIMESTAMPTZ
+            ADD COLUMN IF NOT EXISTS can_updated_at TIMESTAMPTZ,
+            ADD COLUMN IF NOT EXISTS node_monthly_limits_kwh JSONB NOT NULL DEFAULT '[0,0,0]'::jsonb
         `);
 
         await query(`
@@ -379,76 +397,115 @@ class ReadingStore {
       return [];
     }
 
-    const [settingsResult, latestResult] = await Promise.all([
-      query(
-        `
-          SELECT node_thresholds
-          FROM app_settings
-          WHERE id = 1
-          LIMIT 1
-        `
+    const settingsResult = await query(`
+      SELECT
+        node_labels,
+        node_monthly_limits_kwh,
+        timezone
+      FROM app_settings
+      WHERE id = 1
+      LIMIT 1
+    `);
+
+    const settingsRow = settingsResult.rows[0] || {};
+    const nodeLabels = normalizeNodeLabels(settingsRow.node_labels);
+    const nodeMonthlyLimitsKWh = normalizeNodeMonthlyLimitsKWh(
+      settingsRow.node_monthly_limits_kwh
+    );
+    const timezone =
+      typeof settingsRow.timezone === "string" && settingsRow.timezone.trim().length > 0
+        ? settingsRow.timezone.trim()
+        : DEFAULT_SETTINGS.timezone;
+
+    const latestSql = `
+      SELECT DISTINCT ON (appliance_id)
+        appliance_id,
+        reading_ts
+      FROM readings
+      WHERE appliance_id = ANY($1::text[])
+      ORDER BY appliance_id, reading_ts DESC
+    `;
+
+    const monthlySql = `
+      WITH bounds AS (
+        SELECT
+          date_trunc('month', now() AT TIME ZONE $2) AS month_start_local,
+          date_trunc('month', now() AT TIME ZONE $2) + INTERVAL '1 month' AS month_end_local
       ),
-      query(
-        `
-          SELECT DISTINCT ON (appliance_id)
-            node_id,
-            appliance_id,
-            appliance_name,
-            current_rms_a,
-            voltage_ref_v,
-            power_w,
-            energy_wh,
-            frequency_hz,
-            threshold_w,
-            abnormal,
-            reading_ts,
-            received_at
-          FROM readings
-          WHERE appliance_id = ANY($1::text[])
-          ORDER BY appliance_id, reading_ts DESC
-        `,
-        [MONITORED_APPLIANCES]
+      seeded_readings AS (
+        SELECT
+          r.appliance_id,
+          r.power_w,
+          r.reading_ts
+        FROM readings r
+        CROSS JOIN bounds b
+        WHERE r.appliance_id = ANY($1::text[])
+          AND r.reading_ts >= (b.month_start_local AT TIME ZONE $2) - INTERVAL '1 day'
+          AND r.reading_ts < (b.month_end_local AT TIME ZONE $2)
+      ),
+      ordered_readings AS (
+        SELECT
+          appliance_id,
+          power_w,
+          reading_ts,
+          LAG(power_w) OVER (PARTITION BY appliance_id ORDER BY reading_ts) AS previous_power_w,
+          LAG(reading_ts) OVER (PARTITION BY appliance_id ORDER BY reading_ts) AS previous_reading_ts
+        FROM seeded_readings
+      ),
+      intervals AS (
+        SELECT
+          o.appliance_id,
+          EXTRACT(EPOCH FROM (o.reading_ts - o.previous_reading_ts)) / 3600.0 AS delta_hours,
+          (o.previous_power_w + o.power_w) / 2.0 AS average_power_w
+        FROM ordered_readings o
+        CROSS JOIN bounds b
+        WHERE o.previous_reading_ts IS NOT NULL
+          AND o.reading_ts >= (b.month_start_local AT TIME ZONE $2)
+          AND o.reading_ts < (b.month_end_local AT TIME ZONE $2)
       )
+      SELECT
+        appliance_id,
+        SUM((average_power_w * delta_hours) / 1000.0) AS kwh
+      FROM intervals
+      WHERE delta_hours > 0
+        AND delta_hours <= 24
+      GROUP BY appliance_id
+    `;
+
+    const [latestResult, monthlyResult] = await Promise.all([
+      query(latestSql, [MONITORED_APPLIANCES]),
+      query(monthlySql, [MONITORED_APPLIANCES, timezone])
     ]);
 
-    const nodeThresholds = normalizeNodeThresholds(settingsResult.rows[0]?.node_thresholds);
-    const totalThresholdW = nodeThresholds.reduce((sum, value) => sum + value, 0);
-    const latestRows = latestResult.rows;
-    if (latestRows.length === 0) {
-      return [];
-    }
+    const latestByAppliance = new Map(
+      latestResult.rows.map((row) => [row.appliance_id, row.reading_ts])
+    );
+    const monthlyByAppliance = new Map(
+      monthlyResult.rows.map((row) => [row.appliance_id, Number(row.kwh || 0)])
+    );
 
-    const totalPowerW = latestRows.reduce((sum, row) => sum + Number(row.power_w || 0), 0);
-    if (totalPowerW <= totalThresholdW) {
-      return [];
-    }
-
-    const latestRow = latestRows.reduce((currentLatest, row) => {
-      if (!currentLatest) {
-        return row;
+    return MONITORED_APPLIANCES.map((applianceId, index) => {
+      const limitKWh = nodeMonthlyLimitsKWh[index] || 0;
+      const usedKWh = monthlyByAppliance.get(applianceId) || 0;
+      if (limitKWh <= 0 || usedKWh <= limitKWh) {
+        return null;
       }
 
-      return new Date(row.reading_ts).getTime() > new Date(currentLatest.reading_ts).getTime()
-        ? row
-        : currentLatest;
-    }, null);
-
-    return [
-      mapReadingRow({
-        node_id: "combined",
-        appliance_id: "combined-load",
-        appliance_name: "3-Appliance Total",
-        current_rms_a: latestRows.reduce((sum, row) => sum + Number(row.current_rms_a || 0), 0),
-        voltage_ref_v: 0,
-        power_w: totalPowerW,
-        energy_wh: null,
-        frequency_hz: null,
-        threshold_w: totalThresholdW,
-        abnormal: true,
-        reading_ts: latestRow?.reading_ts || new Date().toISOString(),
-        received_at: latestRow?.received_at || new Date().toISOString()
-      })
-    ];
+      const label = nodeLabels[index] || DEFAULT_NODE_LABELS[index];
+      const used = Number(usedKWh.toFixed(3));
+      const threshold = Number(limitKWh.toFixed(3));
+      return {
+        id: `${applianceId}-monthly-limit-alert`,
+        timestamp: latestByAppliance.get(applianceId) || new Date().toISOString(),
+        nodeId: index + 1,
+        nodeLabel: label,
+        value: used,
+        threshold,
+        message: `${label} exceeded the monthly limit of ${threshold.toFixed(2)} kWh (${used.toFixed(2)} kWh used).`
+      };
+    })
+      .filter(Boolean)
+      .slice(0, safeLimit);
   }
 
   async getSummary(windowMinutes) {
@@ -664,6 +721,7 @@ class ReadingStore {
             to_char(effective_month, 'YYYY-MM') AS effective_month,
             node_labels,
             node_thresholds,
+            node_monthly_limits_kwh,
             timezone,
             customer_account_number_hash,
             updated_at
@@ -713,9 +771,10 @@ class ReadingStore {
       nodeLabels: Array.isArray(partialSettings.nodeLabels)
         ? normalizeNodeLabels(partialSettings.nodeLabels)
         : current.nodeLabels,
-      nodeThresholds: Array.isArray(partialSettings.nodeThresholds)
-        ? normalizeNodeThresholds(partialSettings.nodeThresholds)
-        : current.nodeThresholds,
+      nodeThresholds: current.nodeThresholds,
+      nodeMonthlyLimitsKWh: Array.isArray(partialSettings.nodeMonthlyLimitsKWh)
+        ? normalizeNodeMonthlyLimitsKWh(partialSettings.nodeMonthlyLimitsKWh)
+        : current.nodeMonthlyLimitsKWh,
       timezone:
         typeof partialSettings.timezone === "string" &&
         partialSettings.timezone.trim().length > 0
@@ -730,7 +789,8 @@ class ReadingStore {
         effective_month = $2::date,
         node_labels = $3::jsonb,
         node_thresholds = $4::jsonb,
-        timezone = $5,
+        node_monthly_limits_kwh = $5::jsonb,
+        timezone = $6,
         updated_at = NOW()
       WHERE id = 1
       RETURNING
@@ -738,6 +798,7 @@ class ReadingStore {
         to_char(effective_month, 'YYYY-MM') AS effective_month,
         node_labels,
         node_thresholds,
+        node_monthly_limits_kwh,
         timezone,
         updated_at
     `;
@@ -747,6 +808,7 @@ class ReadingStore {
       `${nextSettings.effectiveMonth}-01`,
       JSON.stringify(nextSettings.nodeLabels),
       JSON.stringify(nextSettings.nodeThresholds),
+      JSON.stringify(nextSettings.nodeMonthlyLimitsKWh),
       nextSettings.timezone
     ];
 
